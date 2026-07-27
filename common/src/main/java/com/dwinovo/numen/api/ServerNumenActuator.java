@@ -167,6 +167,61 @@ public final class ServerNumenActuator {
         return result;
     }
 
+    /**
+     * Run one semantically allowlisted server command as the companion itself.
+     *
+     * <p>The companion must already be an operator. The restricted parser
+     * rebuilds the command from validated tokens, and the command source is
+     * suppressed so the sidecar can provide one clean player-visible result.
+     */
+    public static CompletableFuture<String> runRestrictedCommand(
+            MinecraftServer server,
+            UUID companionUuid,
+            String command) {
+        CompletableFuture<String> result = new CompletableFuture<>();
+        RestrictedServerCommands.Validation validation =
+                RestrictedServerCommands.validate(command);
+        if (server == null || companionUuid == null) {
+            result.completeExceptionally(
+                    new IllegalArgumentException("server and companionUuid are required"));
+            return result;
+        }
+        if (!validation.allowed()) {
+            result.completeExceptionally(new IllegalArgumentException(validation.error()));
+            return result;
+        }
+
+        server.execute(() -> {
+            NumenPlayer body = NumenPlayer.findByUuid(server, companionUuid);
+            if (body == null) body = Companions.respawn(server, companionUuid);
+            if (body == null) {
+                result.completeExceptionally(new IllegalArgumentException(
+                        "companion not found (never summoned, or its data is gone)"));
+                return;
+            }
+            if (!server.getPlayerList().isOp(body.getGameProfile())) {
+                result.completeExceptionally(
+                        new SecurityException("the companion is not a server operator"));
+                return;
+            }
+            try {
+                int commandResult = server.getCommands().performPrefixedCommand(
+                        body.createCommandSourceStack().withSuppressedOutput(),
+                        validation.command());
+                if (commandResult <= 0) {
+                    result.completeExceptionally(
+                            new IllegalStateException("the command returned no successful result"));
+                    return;
+                }
+                result.complete("/" + validation.command());
+            } catch (RuntimeException ex) {
+                result.completeExceptionally(
+                        new IllegalStateException("command execution failed: " + ex.getMessage(), ex));
+            }
+        });
+        return result;
+    }
+
     private static Companion companion(
             MinecraftServer server,
             Map.Entry<UUID, CompanionRegistry.Entry> entry) {

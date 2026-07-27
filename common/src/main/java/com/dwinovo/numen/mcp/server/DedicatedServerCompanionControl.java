@@ -64,4 +64,16 @@ public final class DedicatedServerCompanionControl implements CompanionControl {
     public CompletableFuture<Boolean> sendChat(UUID companion, String message) {
         return ServerNumenActuator.say(server, companion, message);
     }
+
+    @Override
+    public boolean supportsServerCommands() {
+        return true;
+    }
+
+    @Override
+    public CompletableFuture<String> runRestrictedCommand(
+            UUID companion,
+            String command) {
+        return ServerNumenActuator.runRestrictedCommand(server, companion, command);
+    }
 }

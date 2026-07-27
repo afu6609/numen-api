@@ -242,6 +242,12 @@ public final class McpServer {
                     "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",
                     sendChatSchema()));
         }
+        if (control.supportsServerCommands()) {
+            tools.add(toolDef("run_command",
+                    "Run one prevalidated private-server command as an operator companion. "
+                            + "The server enforces a semantic allowlist.",
+                    runCommandSchema()));
+        }
 
         for (NumenTool tool : ToolRegistry.all()) {
             if (config.isHidden(tool.name())) continue;
@@ -326,6 +332,27 @@ public final class McpServer {
         return schema;
     }
 
+    private JsonObject runCommandSchema() {
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "object");
+        JsonObject props = new JsonObject();
+        props.add("companion", companionProp());
+        JsonObject command = new JsonObject();
+        command.addProperty("type", "string");
+        command.addProperty("minLength", 1);
+        command.addProperty("maxLength", 128);
+        command.addProperty(
+                "description",
+                "A command allowed by the dedicated-server semantic whitelist.");
+        props.add("command", command);
+        schema.add("properties", props);
+        JsonArray required = new JsonArray();
+        required.add("companion");
+        required.add("command");
+        schema.add("required", required);
+        return schema;
+    }
+
     /** An engine tool's own schema, with a required {@code companion} argument injected. */
     private JsonObject withCompanion(java.util.Map<String, Object> parameterSchema) {
         JsonObject schema = parameterSchema == null
@@ -368,6 +395,7 @@ public final class McpServer {
                 case "delete_companion" -> handleDelete(args);
                 case "poll_server_events" -> handlePollServerEvents(args);
                 case "send_chat" -> handleSendChat(args);
+                case "run_command" -> handleRunCommand(args);
                 default -> handleToolInvoke(name, args);
             };
         } catch (TimeoutException te) {
@@ -442,6 +470,24 @@ public final class McpServer {
         boolean ok = control.sendChat(target, message)
                 .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         return content(ok ? "sent" : "could not send chat from that companion", !ok);
+    }
+
+    private JsonObject handleRunCommand(JsonObject args) throws Exception {
+        if (!control.supportsServerCommands()) {
+            return content("server commands are unavailable in client-hosted MCP mode", true);
+        }
+        UUID target = resolveCompanion(args);
+        if (target == null) {
+            return content("run_command needs a valid 'companion' from list_companions", true);
+        }
+        String command = args.has("command") && !args.get("command").isJsonNull()
+                ? args.get("command").getAsString().trim() : "";
+        if (command.isEmpty() || command.length() > 128) {
+            return content("run_command needs a command of at most 128 characters", true);
+        }
+        String executed = control.runRestrictedCommand(target, command)
+                .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return content("executed " + executed, false);
     }
 
     private JsonObject handleToolInvoke(String toolName, JsonObject args) throws Exception {

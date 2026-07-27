@@ -42,4 +42,16 @@ public interface CompanionControl {
     default CompletableFuture<Boolean> sendChat(UUID companion, String message) {
         return CompletableFuture.completedFuture(false);
     }
+
+    /** Restricted operator commands exist only in dedicated-server mode. */
+    default boolean supportsServerCommands() {
+        return false;
+    }
+
+    default CompletableFuture<String> runRestrictedCommand(
+            UUID companion,
+            String command) {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("server commands are unavailable"));
+    }
 }
