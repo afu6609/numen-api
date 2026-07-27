@@ -86,8 +86,8 @@ public abstract class TaskRecord {
     /**
      * Prefix of the synthetic tool-call ids NumenActuator mints for external (MCP)
      * invocations — disjoint from the LLM's ids. The async wind-down keys off this
-     * to route completion: internal tasks fire a task_finished event to the built-in
-     * brain; external ones don't (their driver polls task_status instead).
+     * to route completion to the dedicated-server brain event queue rather than
+     * the built-in client brain.
      */
     public static final String EXTERNAL_CALL_PREFIX = "mcp-";
 

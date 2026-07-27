@@ -2,6 +2,7 @@ package com.dwinovo.numen.task;
 
 import com.dwinovo.numen.network.payload.TaskResultPayload;
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.mcp.server.ServerBrainEvents;
 import com.dwinovo.numen.platform.Services;
 import com.dwinovo.numen.task.TaskResult;
 import net.minecraft.server.level.ServerPlayer;
@@ -131,9 +132,22 @@ public final class LlmTaskChain implements TaskChain {
             // 异步记录:tool_call 在受理时就回执过了,收尾改走 task_finished 事件
             // (done/failed/timeout 唤醒,stopped 搭车——档位在事件登记处定)。
             if (rec.isAsync()) {
-                // 外部(MCP)派的异步任务:不投 task_finished 事件——那条会唤醒并没有派它的内置大脑。
-                // 外部驱动靠 task_status 轮询 + 感知确认闭环(见 TaskDispatch/NumenActuator)。
                 if (rec.isExternalCall()) {
+                    String status = switch (rec.getState()) {
+                        case SUCCESS -> "done";
+                        case TIMEOUT -> "timeout";
+                        case CANCELLED -> "stopped";
+                        default -> "failed";
+                    };
+                    String msg = result == null ? "no result produced" : result.message();
+                    ServerBrainEvents.publishTaskFinished(
+                            player.getUUID(),
+                            player.getName().getString(),
+                            rec.publicId(),
+                            rec.getToolName(),
+                            status,
+                            msg,
+                            player.level().getGameTime());
                     continue;
                 }
                 String status = switch (rec.getState()) {

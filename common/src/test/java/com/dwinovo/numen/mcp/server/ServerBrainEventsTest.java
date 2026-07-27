@@ -54,4 +54,22 @@ class ServerBrainEventsTest {
         assertEquals("hello", event.message());
         assertEquals("player_chat", event.type());
     }
+
+    @Test
+    void publishesExternalTaskCompletionEnvelope() {
+        UUID companion = UUID.randomUUID();
+        ServerBrainEvents.publishTaskFinished(
+                companion, "momo", "t42", "goto", "done", "arrived", 99L);
+
+        ServerBrainEvents.Event event = ServerBrainEvents.poll(1).get(0);
+
+        assertEquals("task_finished", event.type());
+        assertEquals(companion, event.companionUuid());
+        assertEquals("momo", event.companionName());
+        assertEquals("t42", event.taskId());
+        assertEquals("goto", event.taskName());
+        assertEquals("done", event.status());
+        assertEquals("arrived", event.message());
+        assertEquals(99L, event.gameTime());
+    }
 }

@@ -236,7 +236,8 @@ public final class McpServer {
         }
         if (control.supportsServerChat()) {
             tools.add(toolDef("poll_server_events",
-                    "Drain up to 64 recent dedicated-server events in FIFO order. Currently emits player_chat events.",
+                    "Drain up to 64 recent dedicated-server events in FIFO order. Emits player_chat "
+                            + "and external background task_finished lifecycle events.",
                     pollEventsSchema()));
             tools.add(toolDef("send_chat",
                     "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",

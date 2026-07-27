@@ -31,6 +31,11 @@ public final class ServerBrainEvents {
             String type,
             UUID playerUuid,
             String playerName,
+            UUID companionUuid,
+            String companionName,
+            String taskId,
+            String taskName,
+            String status,
             String message,
             long gameTime,
             long receivedAtEpochMillis) {}
@@ -52,9 +57,63 @@ public final class ServerBrainEvents {
                 "player_chat",
                 playerUuid,
                 cleanName,
+                null,
+                null,
+                null,
+                null,
+                null,
                 cleanMessage,
                 gameTime,
                 Instant.now().toEpochMilli());
+        enqueue(event);
+    }
+
+    /**
+     * Wake the external dedicated-server brain when one of its background
+     * actions reaches a terminal state. The event intentionally contains only
+     * the task envelope; the brain re-perceives the live world before deciding
+     * whether the player's original goal is complete.
+     */
+    public static void publishTaskFinished(
+            UUID companionUuid,
+            String companionName,
+            String taskId,
+            String taskName,
+            String status,
+            String message,
+            long gameTime) {
+        if (companionUuid == null || companionName == null
+                || taskId == null || taskName == null || status == null) {
+            return;
+        }
+        String cleanName = companionName.trim();
+        String cleanTaskId = taskId.trim();
+        String cleanTaskName = taskName.trim();
+        String cleanStatus = status.trim();
+        if (cleanName.isEmpty() || cleanTaskId.isEmpty()
+                || cleanTaskName.isEmpty() || cleanStatus.isEmpty()) {
+            return;
+        }
+        String cleanMessage = message == null ? "" : message.trim();
+        if (cleanMessage.length() > MAX_CHAT_LENGTH) {
+            cleanMessage = cleanMessage.substring(0, MAX_CHAT_LENGTH);
+        }
+        enqueue(new Event(
+                SEQUENCE.incrementAndGet(),
+                "task_finished",
+                null,
+                null,
+                companionUuid,
+                cleanName,
+                cleanTaskId,
+                cleanTaskName,
+                cleanStatus,
+                cleanMessage,
+                gameTime,
+                Instant.now().toEpochMilli()));
+    }
+
+    private static void enqueue(Event event) {
         synchronized (EVENTS) {
             while (EVENTS.size() >= MAX_QUEUED_EVENTS) EVENTS.removeFirst();
             EVENTS.addLast(event);
