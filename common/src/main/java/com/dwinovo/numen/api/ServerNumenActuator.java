@@ -10,6 +10,7 @@ import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 
 import java.util.Comparator;
@@ -127,6 +128,41 @@ public final class ServerNumenActuator {
                             "tool invocation failed: " + ex.getMessage()).toJson());
                 }
             }
+        });
+        return result;
+    }
+
+    /**
+     * Broadcast a companion line using Minecraft's ordinary {@code <name> text}
+     * chat translation. It is intentionally a system message rather than forged
+     * signed player chat, so vanilla clients can display it without chat signing
+     * warnings or a client-side Numen mod.
+     */
+    public static CompletableFuture<Boolean> say(
+            MinecraftServer server,
+            UUID companionUuid,
+            String message) {
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        String cleanMessage = message == null ? "" : message.trim();
+        if (server == null || companionUuid == null
+                || cleanMessage.isEmpty() || cleanMessage.length() > 256) {
+            result.complete(false);
+            return result;
+        }
+
+        server.execute(() -> {
+            NumenPlayer body = NumenPlayer.findByUuid(server, companionUuid);
+            if (body == null) body = Companions.respawn(server, companionUuid);
+            if (body == null) {
+                result.complete(false);
+                return;
+            }
+            Component line = Component.translatable(
+                    "chat.type.text",
+                    body.getDisplayName(),
+                    Component.literal(cleanMessage));
+            server.getPlayerList().broadcastSystemMessage(line, false);
+            result.complete(true);
         });
         return result;
     }

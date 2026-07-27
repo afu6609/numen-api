@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -69,6 +70,7 @@ public class NumenMod {
             MinecraftForge.EVENT_BUS.addListener(
                     (net.minecraftforge.event.server.ServerStoppingEvent e) ->
                             com.dwinovo.numen.mcp.server.NumenServerMcp.stop());
+            MinecraftForge.EVENT_BUS.addListener(NumenMod::onServerChat);
         }
 
         CommonClass.init();
@@ -90,5 +92,18 @@ public class NumenMod {
         if (event.getEntity() instanceof com.dwinovo.numen.entity.NumenPlayer ap) {
             com.dwinovo.numen.entity.Companions.onDimensionChanged(ap);
         }
+    }
+
+    /** Queue human chat for the external brain without cancelling or rewriting it. */
+    private static void onServerChat(ServerChatEvent event) {
+        ServerPlayer player = event.getPlayer();
+        if (player instanceof com.dwinovo.numen.entity.NumenPlayer) return;
+        MinecraftServer server = player.level().getServer();
+        long gameTime = server == null ? 0L : server.overworld().getGameTime();
+        com.dwinovo.numen.mcp.server.ServerBrainEvents.publishChat(
+                player.getUUID(),
+                event.getUsername(),
+                event.getRawText(),
+                gameTime);
     }
 }

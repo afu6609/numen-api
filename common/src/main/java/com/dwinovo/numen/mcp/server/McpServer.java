@@ -67,6 +67,11 @@ public final class McpServer {
             then perceive to confirm. Every action tool takes a 'companion' argument (name or id), so each \
             call targets one companion; just drive it, there is no take-control step.
 
+            On a dedicated server, poll_server_events drains recent human player chat in FIFO order. Decide \
+            whether each message should be ignored, answered, or turned into game actions. Use send_chat to \
+            answer as a named companion; keep replies natural and concise, and never answer every message \
+            merely because it was observed.
+
             Rules: survival mode — the tools do only what a real player can (mine to get stone; there is no \
             give or setblock). You are blind between calls, so perceive before and after acting. Action \
             tools return only when the task finishes or times out. You can acquire several companions and \
@@ -229,6 +234,14 @@ public final class McpServer {
                     requiredStringSchema("companion",
                             "Which companion to dismiss — its name or id (see list_companions).")));
         }
+        if (control.supportsServerChat()) {
+            tools.add(toolDef("poll_server_events",
+                    "Drain up to 64 recent dedicated-server events in FIFO order. Currently emits player_chat events.",
+                    pollEventsSchema()));
+            tools.add(toolDef("send_chat",
+                    "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",
+                    sendChatSchema()));
+        }
 
         for (NumenTool tool : ToolRegistry.all()) {
             if (config.isHidden(tool.name())) continue;
@@ -279,6 +292,40 @@ public final class McpServer {
         return schema;
     }
 
+    private JsonObject pollEventsSchema() {
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "object");
+        JsonObject props = new JsonObject();
+        JsonObject limit = new JsonObject();
+        limit.addProperty("type", "integer");
+        limit.addProperty("minimum", 1);
+        limit.addProperty("maximum", 64);
+        limit.addProperty("default", 16);
+        limit.addProperty("description", "Maximum number of queued events to drain.");
+        props.add("limit", limit);
+        schema.add("properties", props);
+        return schema;
+    }
+
+    private JsonObject sendChatSchema() {
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "object");
+        JsonObject props = new JsonObject();
+        props.add("companion", companionProp());
+        JsonObject message = new JsonObject();
+        message.addProperty("type", "string");
+        message.addProperty("minLength", 1);
+        message.addProperty("maxLength", 256);
+        message.addProperty("description", "The natural, concise chat line to send.");
+        props.add("message", message);
+        schema.add("properties", props);
+        JsonArray required = new JsonArray();
+        required.add("companion");
+        required.add("message");
+        schema.add("required", required);
+        return schema;
+    }
+
     /** An engine tool's own schema, with a required {@code companion} argument injected. */
     private JsonObject withCompanion(java.util.Map<String, Object> parameterSchema) {
         JsonObject schema = parameterSchema == null
@@ -319,6 +366,8 @@ public final class McpServer {
                 case "list_companions" -> content(listCompanions(), false);
                 case "create_companion" -> handleCreate(args);
                 case "delete_companion" -> handleDelete(args);
+                case "poll_server_events" -> handlePollServerEvents(args);
+                case "send_chat" -> handleSendChat(args);
                 default -> handleToolInvoke(name, args);
             };
         } catch (TimeoutException te) {
@@ -366,6 +415,33 @@ public final class McpServer {
         boolean ok = control.delete(target).get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         return content(ok ? "dismissed " + target + " — it dropped its inventory and is gone for good"
                 : "could not dismiss " + target, !ok);
+    }
+
+    private JsonObject handlePollServerEvents(JsonObject args) {
+        if (!control.supportsServerChat()) {
+            return content("server events are unavailable in client-hosted MCP mode", true);
+        }
+        int limit = args.has("limit") && !args.get("limit").isJsonNull()
+                ? args.get("limit").getAsInt() : 16;
+        return content(gson.toJson(control.pollServerEvents(limit)), false);
+    }
+
+    private JsonObject handleSendChat(JsonObject args) throws Exception {
+        if (!control.supportsServerChat()) {
+            return content("server chat is unavailable in client-hosted MCP mode", true);
+        }
+        UUID target = resolveCompanion(args);
+        if (target == null) {
+            return content("send_chat needs a valid 'companion' from list_companions", true);
+        }
+        String message = args.has("message") && !args.get("message").isJsonNull()
+                ? args.get("message").getAsString().trim() : "";
+        if (message.isEmpty() || message.length() > 256) {
+            return content("send_chat needs a non-empty 'message' of at most 256 characters", true);
+        }
+        boolean ok = control.sendChat(target, message)
+                .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return content(ok ? "sent" : "could not send chat from that companion", !ok);
     }
 
     private JsonObject handleToolInvoke(String toolName, JsonObject args) throws Exception {

@@ -29,4 +29,17 @@ public interface CompanionControl {
     default boolean supportsLifecycleChanges() {
         return true;
     }
+
+    /** Server chat ingress/egress exists only when MCP is hosted by a dedicated server. */
+    default boolean supportsServerChat() {
+        return false;
+    }
+
+    default List<ServerBrainEvents.Event> pollServerEvents(int limit) {
+        return List.of();
+    }
+
+    default CompletableFuture<Boolean> sendChat(UUID companion, String message) {
+        return CompletableFuture.completedFuture(false);
+    }
 }

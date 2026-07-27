@@ -49,4 +49,19 @@ public final class DedicatedServerCompanionControl implements CompanionControl {
     public boolean supportsLifecycleChanges() {
         return false;
     }
+
+    @Override
+    public boolean supportsServerChat() {
+        return true;
+    }
+
+    @Override
+    public List<ServerBrainEvents.Event> pollServerEvents(int limit) {
+        return ServerBrainEvents.poll(limit);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> sendChat(UUID companion, String message) {
+        return ServerNumenActuator.say(server, companion, message);
+    }
 }
