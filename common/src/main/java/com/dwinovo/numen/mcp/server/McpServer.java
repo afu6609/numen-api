@@ -3,7 +3,6 @@ package com.dwinovo.numen.mcp.server;
 import com.dwinovo.numen.Constants;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
-import com.dwinovo.numen.api.NumenActuator;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -37,12 +36,10 @@ import java.util.concurrent.TimeoutException;
  *
  * <h2>Tool surface</h2>
  * Every engine tool (from {@link ToolRegistry}, minus the config's hidden set)
- * is advertised with an extra {@code companion} argument, and calls route to
- * {@link NumenActuator#invoke}. Three management tools — {@code list_companions},
- * {@code acquire_companion}, {@code release_companion} — wrap the actuator's
- * roster and control methods. Since every call is addressed to a companion and
- * each body runs its tasks independently, an agent can acquire several
- * companions and drive them in parallel.
+ * is advertised with an extra {@code companion} argument, and calls route
+ * through a side-neutral {@link CompanionControl}. The same protocol can
+ * therefore drive an owner-client actuator or a headless dedicated-server
+ * actuator without loading client classes on the physical server.
  */
 public final class McpServer {
 
@@ -76,11 +73,13 @@ public final class McpServer {
             drive them in parallel. Modded blocks, items, and GUIs (Create, AE2, Mekanism) work natively.""";
 
     private final McpConfig config;
+    private final CompanionControl control;
     private final Gson gson = new Gson();
     private HttpServer http;
 
-    public McpServer(McpConfig config) {
+    public McpServer(McpConfig config, CompanionControl control) {
         this.config = config;
+        this.control = control;
     }
 
     public void start() throws IOException {
@@ -219,15 +218,17 @@ public final class McpServer {
         tools.add(toolDef("list_companions",
                 "List the owner's live Minecraft companions (name + id). Call this first to see who you can drive.",
                 objectSchema(null, false)));
-        tools.add(toolDef("create_companion",
-                "Summon a new companion into the world by name (3–16 letters, digits, or underscore). It arrives "
-                        + "in a moment; call list_companions to confirm, then drive it directly — no 'take control' step.",
-                requiredStringSchema("name",
-                        "The new companion's name (3–16 letters, digits, or underscore).")));
-        tools.add(toolDef("delete_companion",
-                "Permanently dismiss a companion — it drops its inventory and is gone for good. Takes its name or id.",
-                requiredStringSchema("companion",
-                        "Which companion to dismiss — its name or id (see list_companions).")));
+        if (control.supportsLifecycleChanges()) {
+            tools.add(toolDef("create_companion",
+                    "Summon a new companion into the world by name (3–16 letters, digits, or underscore). It arrives "
+                            + "in a moment; call list_companions to confirm, then drive it directly — no 'take control' step.",
+                    requiredStringSchema("name",
+                            "The new companion's name (3–16 letters, digits, or underscore).")));
+            tools.add(toolDef("delete_companion",
+                    "Permanently dismiss a companion — it drops its inventory and is gone for good. Takes its name or id.",
+                    requiredStringSchema("companion",
+                            "Which companion to dismiss — its name or id (see list_companions).")));
+        }
 
         for (NumenTool tool : ToolRegistry.all()) {
             if (config.isHidden(tool.name())) continue;
@@ -328,14 +329,17 @@ public final class McpServer {
     }
 
     private String listCompanions() throws Exception {
-        List<NumenActuator.Companion> list = NumenActuator.companions()
+        List<CompanionControl.Companion> list = control.companions()
                 .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (list.isEmpty()) {
-            return "No companions are live in the world right now. Summon one in-game first.";
+            return "No companions are registered in this world. Summon one in-game first.";
         }
-        StringBuilder sb = new StringBuilder("Live companions:\n");
-        for (NumenActuator.Companion c : list) {
-            sb.append("- ").append(c.name()).append("  (id: ").append(c.uuid()).append(")\n");
+        StringBuilder sb = new StringBuilder("Registered companions:\n");
+        for (CompanionControl.Companion c : list) {
+            sb.append("- ").append(c.name())
+                    .append("  (id: ").append(c.uuid())
+                    .append(", ").append(c.live() ? "live" : "dormant")
+                    .append(")\n");
         }
         return sb.toString().stripTrailing();
     }
@@ -346,7 +350,7 @@ public final class McpServer {
         if (name.isEmpty()) {
             return content("create_companion needs a 'name' (3–16 letters, digits, or underscore)", true);
         }
-        boolean ok = NumenActuator.create(name).get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        boolean ok = control.create(name).get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (!ok) {
             return content("could not summon — is the game in a world?", true);
         }
@@ -359,7 +363,7 @@ public final class McpServer {
         if (target == null) {
             return content("no such companion — call list_companions to see valid names/ids", true);
         }
-        boolean ok = NumenActuator.delete(target).get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        boolean ok = control.delete(target).get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         return content(ok ? "dismissed " + target + " — it dropped its inventory and is gone for good"
                 : "could not dismiss " + target, !ok);
     }
@@ -371,7 +375,7 @@ public final class McpServer {
         }
         JsonObject toolArgs = args.deepCopy();
         toolArgs.remove("companion");
-        String result = NumenActuator.invoke(target, toolName, toolArgs.toString())
+        String result = control.invoke(target, toolName, toolArgs.toString())
                 .get(config.callTimeoutSeconds(), TimeUnit.SECONDS);
         boolean isError = false;
         try {
@@ -388,17 +392,17 @@ public final class McpServer {
         if (!args.has("companion") || args.get("companion").isJsonNull()) return null;
         String raw = args.get("companion").getAsString().trim();
         if (raw.isEmpty()) return null;
-        List<NumenActuator.Companion> list = NumenActuator.companions()
+        List<CompanionControl.Companion> list = control.companions()
                 .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         // exact id match first
-        for (NumenActuator.Companion c : list) {
+        for (CompanionControl.Companion c : list) {
             if (c.uuid().toString().equalsIgnoreCase(raw)) return c.uuid();
         }
         // then exact name, then case-insensitive name
-        for (NumenActuator.Companion c : list) {
+        for (CompanionControl.Companion c : list) {
             if (c.name().equals(raw)) return c.uuid();
         }
-        for (NumenActuator.Companion c : list) {
+        for (CompanionControl.Companion c : list) {
             if (c.name().equalsIgnoreCase(raw)) return c.uuid();
         }
         return null;

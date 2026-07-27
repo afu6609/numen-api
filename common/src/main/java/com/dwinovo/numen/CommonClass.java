@@ -31,6 +31,14 @@ public class CommonClass {
                         Services.PLATFORM.getConfigDir().resolve("numen").resolve("reflexes.json")));
         com.dwinovo.numen.entity.CompanionLifecycle.onDeath(
                 com.dwinovo.numen.task.CompanionTickDispatcher::clearActiveTask);
+        com.dwinovo.numen.entity.CompanionLifecycle.onDeath(body -> {
+            String cause = body.getCombatTracker().getDeathMessage().getString();
+            if (cause == null || cause.isBlank()) cause = "unknown cause";
+            com.dwinovo.numen.task.ServerToolReplies.failForCompanion(
+                    body.getUUID(),
+                    com.dwinovo.numen.task.TaskResult.fail(
+                            "companion died during the action: " + cause).toJson());
+        });
         com.dwinovo.numen.entity.CompanionLifecycle.onRemove(
                 com.dwinovo.numen.task.CompanionTickDispatcher::onCompanionRemoved);
         com.dwinovo.numen.entity.CompanionLifecycle.onAbort(

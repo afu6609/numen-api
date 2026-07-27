@@ -27,7 +27,7 @@ public final class NumenMcp {
             Constants.LOG.info("[numen-mcp] disabled in config (config/numen/mcp_server.json)");
             return;
         }
-        server = new McpServer(cfg);
+        server = new McpServer(cfg, new ClientCompanionControl());
         try {
             server.start();
             Constants.LOG.info("[numen-mcp] MCP server up on http://{}:{}/mcp — reach it from Claude Desktop via "

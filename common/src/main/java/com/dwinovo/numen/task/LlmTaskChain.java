@@ -126,7 +126,6 @@ public final class LlmTaskChain implements TaskChain {
         List<TaskRecord> completed = queue.drainCompleted();
         if (completed.isEmpty()) return;
         ServerPlayer owner = player.resolveOwnerPlayer();
-        if (owner == null) return;
         for (TaskRecord rec : completed) {
             TaskResult result = rec.getResult();
             // 异步记录:tool_call 在受理时就回执过了,收尾改走 task_finished 事件
@@ -151,8 +150,17 @@ public final class LlmTaskChain implements TaskChain {
             String json = result == null
                     ? "{\"success\":false,\"message\":\"no result produced\"}"
                     : result.toJson();
-            Services.NETWORK.sendToPlayer(owner,
-                    new TaskResultPayload(player.getUUID(), rec.getToolCallId(), json));
+            // A dedicated-server actuator has no owner client. Deliver its
+            // parked callback first; otherwise preserve the original client
+            // network route. An offline owner no longer causes server-local
+            // results to be silently dropped.
+            if (ServerToolReplies.deliver(rec.getToolCallId(), json)) {
+                continue;
+            }
+            if (owner != null) {
+                Services.NETWORK.sendToPlayer(owner,
+                        new TaskResultPayload(player.getUUID(), rec.getToolCallId(), json));
+            }
         }
     }
 

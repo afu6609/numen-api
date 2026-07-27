@@ -57,6 +57,18 @@ public class NumenMod {
         // from the client class, only on the physical client.
         if (FMLEnvironment.dist == Dist.CLIENT) {
             NumenForgeClient.init(modBus);
+        } else {
+            // In a physical dedicated server the external brain must not depend
+            // on an owner's client. Bind the same MCP protocol directly to the
+            // server actuator for the lifetime of this server instance.
+            MinecraftForge.EVENT_BUS.addListener(
+                    (net.minecraftforge.event.server.ServerStartedEvent e) ->
+                            com.dwinovo.numen.mcp.server.NumenServerMcp.start(
+                                    e.getServer(),
+                                    net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()));
+            MinecraftForge.EVENT_BUS.addListener(
+                    (net.minecraftforge.event.server.ServerStoppingEvent e) ->
+                            com.dwinovo.numen.mcp.server.NumenServerMcp.stop());
         }
 
         CommonClass.init();

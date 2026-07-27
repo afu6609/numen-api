@@ -118,6 +118,18 @@ public final class CompanionRegistry extends SavedData {
         return entries.get(companionUuid);
     }
 
+    /**
+     * Immutable snapshot of every registered companion.
+     *
+     * <p>The dedicated-server actuator uses this instead of walking the live
+     * player list because a companion may be dormant while its owner is
+     * offline. Returning a copy also prevents callers outside this registry
+     * from mutating saved state without {@link #setDirty()}.
+     */
+    public Map<UUID, Entry> snapshot() {
+        return Map.copyOf(entries);
+    }
+
     public void remove(UUID companionUuid) {
         if (entries.remove(companionUuid) != null) setDirty();
     }
