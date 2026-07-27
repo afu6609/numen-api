@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Forge 1.20.1 implementation of {@link INetworkChannel}.
@@ -44,12 +45,14 @@ import java.util.function.Function;
 public final class ForgeNetworkChannel implements INetworkChannel {
 
     private static final String PROTOCOL_VERSION = "1";
+    private static final Predicate<String> ACCEPTED_VERSIONS =
+            NetworkRegistry.acceptMissingOr(PROTOCOL_VERSION);
 
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(Constants.MOD_ID, "main"),
             () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals);
+            ACCEPTED_VERSIONS,
+            ACCEPTED_VERSIONS);
 
     /** A single opaque message multiplexing every payload: id + serialised bytes. */
     private record Envelope(ResourceLocation id, byte[] data) {}
@@ -112,6 +115,13 @@ public final class ForgeNetworkChannel implements INetworkChannel {
 
     @Override
     public void sendToPlayer(ServerPlayer player, NumenPayload payload) {
+        // The dedicated-server agent must coexist with ordinary/mobile clients
+        // that do not install Numen. The handshake accepts a missing channel,
+        // so guard every S→C custom packet as well: sending an unknown packet
+        // to such a client would disconnect it.
+        if (!CHANNEL.isRemotePresent(player.connection.connection)) {
+            return;
+        }
         // Classic API: target first, message second; PLAYER.with takes a Supplier<ServerPlayer>.
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new Envelope(payload.id(), serialise(payload)));
     }
