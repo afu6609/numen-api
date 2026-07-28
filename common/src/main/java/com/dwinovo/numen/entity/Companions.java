@@ -19,7 +19,8 @@ import java.util.UUID;
  * Coordinates companion lifecycle on top of {@link CompanionFactory} (body
  * spawn/despawn) and {@link CompanionRegistry} (the persistent index). The body
  * persists as a player {@code .dat}; the registry remembers it exists so it can
- * be recreated when its owner returns or a tool call arrives.
+ * be recreated when its owner returns, a tool call arrives, or the dedicated
+ * server's respawn timer elapses.
  */
 @com.dwinovo.numen.api.Internal
 public final class Companions {
@@ -93,6 +94,19 @@ public final class Companions {
         if (live != null) return live;
         CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(companionUuid);
         if (entry == null) return null;
+        if (entry.diedAt() > 0L) {
+            long now = server.overworld().getGameTime();
+            if (!respawnDelayElapsed(now, entry.diedAt())) {
+                return null;
+            }
+            ServerPlayer owner = server.getPlayerList().getPlayer(entry.owner());
+            if (owner != null) {
+                return respawnDead(server, companionUuid, entry, owner)
+                        ? NumenPlayer.findByUuid(server, companionUuid)
+                        : null;
+            }
+            return respawnDeadHeadless(server, companionUuid, entry);
+        }
         // A body can exceptionally remain in a ServerLevel after falling out of
         // PlayerList (for example across a fake-connection/login lifecycle edge).
         // It still renders, but the task scheduler only ticks list-resident
@@ -112,17 +126,12 @@ public final class Companions {
         return CompanionFactory.spawn(server, companionUuid, entry.name(), entry.owner(), level, null);
     }
 
-    /** When an owner logs in, bring back every companion of theirs. A companion that DIED while the owner
-     *  was away (death state persisted in the registry — survives the logout) is respawned-at-owner now
-     *  AND told why it died; a live one is just restored from its {@code .dat}. */
+    /** When an owner logs in, bring back every companion of theirs. Live bodies
+     *  are restored immediately; dead bodies still pass through
+     *  {@link #respawn}, so logging in cannot bypass the death cooldown. */
     public static void respawnAllOwnedBy(MinecraftServer server, UUID ownerUuid) {
-        ServerPlayer owner = server.getPlayerList().getPlayer(ownerUuid);
         for (Map.Entry<UUID, CompanionRegistry.Entry> e : CompanionRegistry.get(server).ownedBy(ownerUuid)) {
-            if (e.getValue().diedAt() > 0L) {
-                if (owner != null) respawnDead(server, e.getKey(), e.getValue(), owner);
-            } else {
-                respawn(server, e.getKey());
-            }
+            respawn(server, e.getKey());
         }
     }
 
@@ -131,8 +140,10 @@ public final class Companions {
      * vanilla — drops / a grave mod / keepInventory all run because it's a real ServerPlayer death.
      * We only: stop the brain (the owner's loop suspends on {@link NumenDeathPayload}, resolving the
      * in-flight tool call with the death cause), heal the body so its saved {@code .dat} is whole, and
-     * queue a timed respawn at the owner. The corpse is removed AFTER this tick (a fake player isn't
-     * auto-removed on death — it would sit at 0 HP forever waiting for a respawn packet that never comes).
+     * queue a timed respawn near the owner, or near its recorded death cell when
+     * running headlessly. The corpse is removed AFTER this tick (a fake player
+     * isn't auto-removed on death — it would sit at 0 HP forever waiting for a
+     * respawn packet that never comes).
      */
     public static void onDeath(NumenPlayer body) {
         MinecraftServer server = body.level().getServer();
@@ -148,15 +159,21 @@ public final class Companions {
         // Persist the death (cause + game-time) in the world-saved registry so it survives a logout during
         // the respawn window — without this, a relog lost the pending state and the body silently respawned
         // "alive" with an empty inventory and no idea it had died.
-        CompanionRegistry.get(server).markDead(uuid, cause, server.overworld().getGameTime());
+        CompanionRegistry registry = CompanionRegistry.get(server);
+        CompanionRegistry.Entry previous = registry.find(uuid);
+        if (previous != null) {
+            registry.put(uuid, previous.movedTo(
+                    ((ServerLevel) body.level()).dimension(), body.blockPosition()));
+        }
+        registry.markDead(uuid, cause, server.overworld().getGameTime());
         body.setHealth(body.getMaxHealth());             // saved .dat is a healthy body for the respawn
         server.execute(() -> CompanionFactory.despawn(server, body));   // remove the corpse safely after the tick
     }
 
     /**
-     * Bring back any companion whose post-death timer has elapsed, AT ITS OWNER (covers dimension
-     * follow too — it returns in whatever dimension the owner is now in). Owner offline → keep waiting
-     * (their client-side brain can't run anyway); it respawns the moment they're back. Called each tick.
+     * Bring back any companion whose post-death timer has elapsed. With an
+     * online owner it returns safely beside them; otherwise the dedicated-server
+     * brain recovers it near the recorded death cell. Called each tick.
      */
     public static void tickRespawns(MinecraftServer server) {
         long now = server.overworld().getGameTime();
@@ -164,11 +181,21 @@ public final class Companions {
             CompanionRegistry.Entry entry = e.getValue();
             if (now - entry.diedAt() < RESPAWN_DELAY_TICKS) continue;
             ServerPlayer owner = server.getPlayerList().getPlayer(entry.owner());
-            if (owner == null) continue;                            // owner offline — wait for login
-            // No safe spot right now → quietly retry next tick until the owner reaches open
-            // space (the maid/vanilla-pet convention: never nag about a transient squeeze).
-            respawnDead(server, e.getKey(), entry, owner);
+            if (owner != null) {
+                // No safe spot right now → quietly retry next tick until the owner reaches open
+                // space (the maid/vanilla-pet convention: never nag about a transient squeeze).
+                respawnDead(server, e.getKey(), entry, owner);
+            } else {
+                // Dedicated-server brains keep companions alive without a human
+                // client. After the same cooldown, recover near the recorded death
+                // cell instead of letting status/tool calls resurrect immediately.
+                respawnDeadHeadless(server, e.getKey(), entry);
+            }
         }
+    }
+
+    static boolean respawnDelayElapsed(long now, long diedAt) {
+        return diedAt <= 0L || now - diedAt >= RESPAWN_DELAY_TICKS;
     }
 
     /** Respawn a dead companion at its owner, clear the death state, and tell the brain it died + why
@@ -185,6 +212,7 @@ public final class Companions {
             pos = owner.position();   // non-full-block floor (slab/carpet): the owner's own spot fits
         }
         if (pos == null) return false;
+        removeDeadBodyIfPresent(server, uuid);
         NumenPlayer body = CompanionFactory.spawn(server, uuid, entry.name(), entry.owner(), level, pos);
         body.setHealth(body.getMaxHealth());
         body.clearFire();
@@ -192,6 +220,39 @@ public final class Companions {
         syncRosterToOwner(server, owner);
         Services.NETWORK.sendToPlayer(owner, new NumenRespawnPayload(uuid, entry.deathCause()));
         return true;
+    }
+
+    /**
+     * Dedicated-server recovery when no human owner is online. The death cell is
+     * refreshed in the registry by {@link #onDeath}; preflight a safe standing
+     * position around it before creating the body, so a tight block never causes
+     * a spawn/suffocate/despawn loop.
+     */
+    private static NumenPlayer respawnDeadHeadless(
+            MinecraftServer server, UUID uuid, CompanionRegistry.Entry entry) {
+        ServerLevel level = server.getLevel(entry.dimension());
+        if (level == null) level = server.overworld();
+        Vec3 origin = Vec3.atBottomCenterOf(entry.pos());
+        Vec3 pos = SafeSpawn.findNear(level, origin);
+        if (pos == null) return null;
+        removeDeadBodyIfPresent(server, uuid);
+        NumenPlayer body = CompanionFactory.spawn(
+                server, uuid, entry.name(), entry.owner(), level, pos);
+        body.setHealth(body.getMaxHealth());
+        body.clearFire();
+        CompanionRegistry.get(server).markAlive(uuid);
+        com.dwinovo.numen.Constants.LOG.info(
+                "[numen-companion] headless respawn {} ({}) at {}",
+                entry.name(), uuid, body.blockPosition());
+        return body;
+    }
+
+    /** Defensive cleanup if the healed corpse missed its scheduled end-of-tick removal. */
+    private static void removeDeadBodyIfPresent(MinecraftServer server, UUID uuid) {
+        NumenPlayer corpse = NumenPlayer.findWorldBodyByUuid(server, uuid);
+        if (corpse != null) {
+            CompanionFactory.despawn(server, corpse);
+        }
     }
 
     /**

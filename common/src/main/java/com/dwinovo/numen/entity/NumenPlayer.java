@@ -55,7 +55,15 @@ public final class NumenPlayer extends ServerPlayer {
 
     /** The loaded companion body with this UUID, or {@code null} if not spawned. */
     public static NumenPlayer findByUuid(MinecraftServer server, UUID uuid) {
-        return server.getPlayerList().getPlayer(uuid) instanceof NumenPlayer ap ? ap : null;
+        if (!(server.getPlayerList().getPlayer(uuid) instanceof NumenPlayer ap)) {
+            return null;
+        }
+        // onDeath heals the corpse before scheduling its end-of-tick removal so
+        // the persisted body can be reused. During that short window it is still
+        // in PlayerList but must not be handed to a server-side tool as "live":
+        // doing so bypasses the death delay and can queue work on a corpse.
+        CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(uuid);
+        return entry != null && entry.diedAt() > 0L ? null : ap;
     }
 
     /**
