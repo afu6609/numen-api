@@ -93,6 +93,19 @@ public final class Companions {
         if (live != null) return live;
         CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(companionUuid);
         if (entry == null) return null;
+        // A body can exceptionally remain in a ServerLevel after falling out of
+        // PlayerList (for example across a fake-connection/login lifecycle edge).
+        // It still renders, but the task scheduler only ticks list-resident
+        // companions. Spawning straight over it creates the worst possible
+        // split-brain: tools drive one body while the player sees another.
+        // Save/remove the orphan first, then restore exactly one canonical body.
+        NumenPlayer orphan = NumenPlayer.findWorldBodyByUuid(server, companionUuid);
+        if (orphan != null) {
+            com.dwinovo.numen.Constants.LOG.warn(
+                    "[numen-companion] reconciling world-only body {} ({}) before respawn",
+                    orphan.getName().getString(), companionUuid);
+            CompanionFactory.despawn(server, orphan);
+        }
         ServerLevel level = server.getLevel(entry.dimension());
         if (level == null) level = server.overworld();
         // pos=null: keep the position restored from the .dat.

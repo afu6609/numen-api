@@ -58,6 +58,24 @@ public final class NumenPlayer extends ServerPlayer {
         return server.getPlayerList().getPlayer(uuid) instanceof NumenPlayer ap ? ap : null;
     }
 
+    /**
+     * A companion entity with this UUID that still exists in any level, even if
+     * it has fallen out of {@link net.minecraft.server.players.PlayerList}.
+     *
+     * <p>This is deliberately separate from {@link #findByUuid}: only a
+     * list-resident body is schedulable. Lifecycle code uses this wider lookup
+     * to remove and recreate an orphan before spawning, avoiding two bodies with
+     * the same UUID (one visible, one receiving tasks).
+     */
+    static NumenPlayer findWorldBodyByUuid(MinecraftServer server, UUID uuid) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(uuid) instanceof NumenPlayer ap) {
+                return ap;
+            }
+        }
+        return null;
+    }
+
     public UUID getOwnerUuid() {
         return ownerUuid;
     }
