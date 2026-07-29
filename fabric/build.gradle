@@ -1,6 +1,7 @@
 plugins {
     id 'multiloader-loader'
-    id 'fabric-loom'
+    // Resolve Loom only when the Fabric project is actually included.
+    id 'fabric-loom' version '1.6-SNAPSHOT'
 }
 
 dependencies {

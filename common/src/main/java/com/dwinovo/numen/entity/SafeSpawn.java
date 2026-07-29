@@ -78,7 +78,15 @@ final class SafeSpawn {
         return level.noCollision(standingBox(pos.x, pos.y, pos.z));
     }
 
-    private static boolean isSafe(ServerLevel level, BlockPos pos) {
+    /**
+     * Whether {@code pos} itself is a safe block-aligned standing cell.
+     *
+     * <p>Package-private for the lifecycle coordinator's explicit admin
+     * recovery path. Normal respawns should continue to use {@link #findNear};
+     * recovery into a bounded test arena must validate the exact persisted
+     * arena target instead of silently wandering to a nearby cell.
+     */
+    static boolean isSafe(ServerLevel level, BlockPos pos) {
         if (!level.getWorldBorder().isWithinBounds(pos)) return false;
         BlockPos belowPos = pos.below();
         BlockState footing = level.getBlockState(belowPos);

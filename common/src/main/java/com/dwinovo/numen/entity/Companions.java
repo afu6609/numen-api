@@ -5,6 +5,7 @@ import com.dwinovo.numen.network.payload.NumenEventPayload;
 import com.dwinovo.numen.network.payload.NumenRespawnPayload;
 import com.dwinovo.numen.network.payload.CompanionListPayload;
 import com.dwinovo.numen.platform.Services;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -124,6 +125,89 @@ public final class Companions {
         if (level == null) level = server.overworld();
         // pos=null: keep the position restored from the .dat.
         return CompanionFactory.spawn(server, companionUuid, entry.name(), entry.owner(), level, null);
+    }
+
+    /**
+     * Recover a registered dead companion at one exact, pre-authorized safe
+     * cell while preserving its identity and persisted player data.
+     *
+     * <p>This is a narrow server-administration seam for bounded test
+     * harnesses. It never creates or replaces a registry entry: the UUID,
+     * name, owner and skin all come from the existing entry, while
+     * {@link CompanionFactory#spawn} restores the same player {@code .dat}
+     * (including inventory) before the explicit position is applied. It also
+     * refuses a live/non-dead companion, so callers cannot repurpose it as a
+     * general teleport or summon primitive.
+     *
+     * <p>The caller is responsible for authorizing and bounding
+     * {@code targetFeet}. This method independently requires the exact cell to
+     * be loaded and safe; unlike normal respawn it never searches outside that
+     * target.
+     *
+     * @throws IllegalArgumentException when the UUID is unknown or the target
+     *                                  is not an exact safe standing cell
+     * @throws IllegalStateException when the companion is not marked dead
+     */
+    public static NumenPlayer recoverDeadAt(
+            MinecraftServer server,
+            UUID companionUuid,
+            ServerLevel level,
+            BlockPos targetFeet) {
+        if (server == null) throw new IllegalArgumentException("server is required");
+        if (companionUuid == null) {
+            throw new IllegalArgumentException("companion UUID is required");
+        }
+        if (level == null) throw new IllegalArgumentException("target level is required");
+        if (targetFeet == null) {
+            throw new IllegalArgumentException("target feet position is required");
+        }
+
+        CompanionRegistry registry = CompanionRegistry.get(server);
+        CompanionRegistry.Entry entry = registry.find(companionUuid);
+        if (entry == null) {
+            throw new IllegalArgumentException(
+                    "companion " + companionUuid + " is not registered");
+        }
+        if (entry.diedAt() <= 0L) {
+            throw new IllegalStateException(
+                    "companion '" + entry.name()
+                            + "' is not marked dead; refusing forced recovery");
+        }
+        if (!level.hasChunkAt(targetFeet)) {
+            throw new IllegalArgumentException(
+                    "recovery target chunk is not loaded: " + targetFeet);
+        }
+        if (!SafeSpawn.isSafe(level, targetFeet)) {
+            throw new IllegalArgumentException(
+                    "recovery target is not a safe standing cell: " + targetFeet);
+        }
+
+        removeDeadBodyIfPresent(server, companionUuid);
+        NumenPlayer body = CompanionFactory.spawn(
+                server,
+                companionUuid,
+                entry.name(),
+                entry.owner(),
+                level,
+                Vec3.atBottomCenterOf(targetFeet));
+        body.setHealth(body.getMaxHealth());
+        body.clearFire();
+        registry.put(
+                companionUuid,
+                entry.movedTo(level.dimension(), body.blockPosition()));
+        registry.markAlive(companionUuid);
+
+        ServerPlayer owner = server.getPlayerList().getPlayer(entry.owner());
+        if (owner != null) {
+            syncRosterToOwner(server, owner);
+            Services.NETWORK.sendToPlayer(
+                    owner,
+                    new NumenRespawnPayload(companionUuid, entry.deathCause()));
+        }
+        com.dwinovo.numen.Constants.LOG.info(
+                "[numen-companion] explicit dead recovery {} ({}) at {}",
+                entry.name(), companionUuid, body.blockPosition());
+        return body;
     }
 
     /** When an owner logs in, bring back every companion of theirs. Live bodies
