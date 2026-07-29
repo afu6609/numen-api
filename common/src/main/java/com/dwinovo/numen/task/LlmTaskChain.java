@@ -140,6 +140,15 @@ public final class LlmTaskChain implements TaskChain {
                         default -> "failed";
                     };
                     String msg = result == null ? "no result produced" : result.message();
+                    com.dwinovo.numen.api.ExternalTaskEvents.publish(
+                            new com.dwinovo.numen.api.ExternalTaskEvents.Event(
+                                    player.getUUID(),
+                                    player.getName().getString(),
+                                    rec.publicId(),
+                                    rec.getToolName(),
+                                    status,
+                                    msg,
+                                    player.level().getGameTime()));
                     ServerBrainEvents.publishTaskFinished(
                             player.getUUID(),
                             player.getName().getString(),
