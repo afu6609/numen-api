@@ -67,8 +67,9 @@ public final class McpServer {
             then perceive to confirm. Every action tool takes a 'companion' argument (name or id), so each \
             call targets one companion; just drive it, there is no take-control step.
 
-            On a dedicated server, poll_server_events drains recent human player chat in FIFO order. Decide \
-            whether each message should be ignored, answered, or turned into game actions. Use send_chat to \
+            On a dedicated server, poll_server_events drains recent human player chat, external task lifecycle, \
+            and trusted administrator test instructions in FIFO order. Decide whether each player chat should be \
+            ignored, answered, or turned into game actions. Use send_chat to \
             answer as a named companion; keep replies natural and concise, and never answer every message \
             merely because it was observed.
 
@@ -237,7 +238,8 @@ public final class McpServer {
         if (control.supportsServerChat()) {
             tools.add(toolDef("poll_server_events",
                     "Drain up to 64 recent dedicated-server events in FIFO order. Emits player_chat "
-                            + "and external background task_finished lifecycle events.",
+                            + "and external background task_finished lifecycle events, plus trusted "
+                            + "administrator test_instruction events published by server mods.",
                     pollEventsSchema()));
             tools.add(toolDef("send_chat",
                     "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",

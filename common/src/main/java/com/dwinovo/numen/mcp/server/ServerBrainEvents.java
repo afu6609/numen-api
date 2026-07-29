@@ -1,5 +1,7 @@
 package com.dwinovo.numen.mcp.server;
 
+import com.dwinovo.numen.api.ServerBrainAdminEvents;
+
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -37,6 +39,9 @@ public final class ServerBrainEvents {
             String taskName,
             String status,
             String message,
+            String runId,
+            ServerBrainAdminEvents.ArenaAnchor arenaAnchor,
+            Boolean freshThread,
             long gameTime,
             long receivedAtEpochMillis) {}
 
@@ -63,6 +68,9 @@ public final class ServerBrainEvents {
                 null,
                 null,
                 cleanMessage,
+                null,
+                null,
+                null,
                 gameTime,
                 Instant.now().toEpochMilli());
         enqueue(event);
@@ -109,6 +117,41 @@ public final class ServerBrainEvents {
                 cleanTaskName,
                 cleanStatus,
                 cleanMessage,
+                null,
+                null,
+                null,
+                gameTime,
+                Instant.now().toEpochMilli()));
+    }
+
+    /**
+     * Publication target for the public, trusted-server administrative API.
+     * This method is engine plumbing; callers should use
+     * {@link ServerBrainAdminEvents#publishTestInstruction}.
+     */
+    @com.dwinovo.numen.api.Internal
+    public static void publishTestInstruction(
+            UUID companionUuid,
+            String companionName,
+            String runId,
+            String instruction,
+            ServerBrainAdminEvents.ArenaAnchor arenaAnchor,
+            boolean freshThread,
+            long gameTime) {
+        enqueue(new Event(
+                SEQUENCE.incrementAndGet(),
+                "test_instruction",
+                null,
+                null,
+                companionUuid,
+                companionName,
+                null,
+                null,
+                null,
+                instruction,
+                runId,
+                arenaAnchor,
+                freshThread,
                 gameTime,
                 Instant.now().toEpochMilli()));
     }
