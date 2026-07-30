@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -138,5 +139,36 @@ class ServerBrainEventsTest {
                 () -> new ServerBrainAdminEvents.ArenaAnchor(
                         "overworld", 0, 64, 0));
         assertTrue(ServerBrainEvents.poll(16).isEmpty());
+    }
+
+    @Test
+    void operatorConfigurationRequestSurvivesSaturatedChatQueue() {
+        UUID player = UUID.randomUUID();
+        for (int i = 0; i < ServerBrainEvents.MAX_QUEUED_EVENTS; i++) {
+            ServerBrainEvents.publishChat(
+                    player, "Alex", "message-" + i, i);
+        }
+        Map<String, Object> data = Map.of(
+                "requestId", "cfg-1",
+                "action", "set",
+                "model", "gpt-5.3-codex-spark",
+                "reasoning", "high");
+
+        ServerBrainEvents.publishBrainConfigRequest("cfg-1", data, 500L);
+
+        List<ServerBrainEvents.Event> all = new java.util.ArrayList<>();
+        List<ServerBrainEvents.Event> batch;
+        do {
+            batch = ServerBrainEvents.poll(64);
+            all.addAll(batch);
+        } while (!batch.isEmpty());
+        ServerBrainEvents.Event request = all.stream()
+                .filter(event ->
+                        "brain_config_request".equals(event.type()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(data, request.data());
+        assertEquals(500L, request.gameTime());
+        assertEquals(ServerBrainEvents.MAX_QUEUED_EVENTS, all.size());
     }
 }

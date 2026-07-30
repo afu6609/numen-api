@@ -5,7 +5,9 @@ import com.dwinovo.numen.api.ServerBrainAdminEvents;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,7 +45,8 @@ public final class ServerBrainEvents {
             ServerBrainAdminEvents.ArenaAnchor arenaAnchor,
             Boolean freshThread,
             long gameTime,
-            long receivedAtEpochMillis) {}
+            long receivedAtEpochMillis,
+            Map<String, Object> data) {}
 
     public static void publishChat(
             UUID playerUuid,
@@ -72,7 +75,8 @@ public final class ServerBrainEvents {
                 null,
                 null,
                 gameTime,
-                Instant.now().toEpochMilli());
+                Instant.now().toEpochMilli(),
+                Map.of());
         enqueue(event);
     }
 
@@ -121,7 +125,8 @@ public final class ServerBrainEvents {
                 null,
                 null,
                 gameTime,
-                Instant.now().toEpochMilli()));
+                Instant.now().toEpochMilli(),
+                Map.of()));
     }
 
     /**
@@ -153,14 +158,101 @@ public final class ServerBrainEvents {
                 arenaAnchor,
                 freshThread,
                 gameTime,
-                Instant.now().toEpochMilli()));
+                Instant.now().toEpochMilli(),
+                Map.of()));
+    }
+
+    /**
+     * Publish an operator-authored runtime-configuration request.
+     *
+     * <p>The request is server-wide and deliberately has no companion id: it
+     * must remain available while the configured body is dormant or absent.
+     */
+    @com.dwinovo.numen.api.Internal
+    public static void publishBrainConfigRequest(
+            String requestId,
+            Map<String, Object> data,
+            long gameTime) {
+        if (requestId == null || requestId.isBlank() || data == null) {
+            throw new IllegalArgumentException(
+                    "brain configuration request id and data are required");
+        }
+        if (!requestId.equals(data.get("requestId"))) {
+            throw new IllegalArgumentException(
+                    "brain configuration request id must match its data envelope");
+        }
+        enqueue(new Event(
+                SEQUENCE.incrementAndGet(),
+                "brain_config_request",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "pending",
+                "",
+                null,
+                null,
+                null,
+                gameTime,
+                Instant.now().toEpochMilli(),
+                Map.copyOf(data)));
     }
 
     private static void enqueue(Event event) {
         synchronized (EVENTS) {
-            while (EVENTS.size() >= MAX_QUEUED_EVENTS) EVENTS.removeFirst();
+            while (EVENTS.size() >= MAX_QUEUED_EVENTS) {
+                if (dropOldestChat()) continue;
+                if (isControlEvent(event)) {
+                    if (dropOldestNonControlEvent()) continue;
+                    throw new IllegalStateException(
+                            "server-brain control event queue is full");
+                }
+                if (dropOldestNonControlEvent()) continue;
+                // A burst of ordinary telemetry/chat must never evict an
+                // already accepted operator/test control request.
+                return;
+            }
             EVENTS.addLast(event);
         }
+    }
+
+    /**
+     * Preserve scarce operator/test control messages during ordinary chat
+     * bursts. If the queue contains no chat, the normal oldest-event policy is
+     * used by the caller.
+     */
+    private static boolean dropOldestChat() {
+        Iterator<Event> iterator = EVENTS.iterator();
+        while (iterator.hasNext()) {
+            if ("player_chat".equals(iterator.next().type())) {
+                iterator.remove();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean dropOldestNonControlEvent() {
+        Iterator<Event> iterator = EVENTS.iterator();
+        while (iterator.hasNext()) {
+            String type = iterator.next().type();
+            if (!isControlEvent(type)) {
+                iterator.remove();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isControlEvent(Event event) {
+        return isControlEvent(event.type());
+    }
+
+    private static boolean isControlEvent(String type) {
+        return "brain_config_request".equals(type)
+                || "test_instruction".equals(type);
     }
 
     public static List<Event> poll(int requestedLimit) {

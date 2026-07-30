@@ -3,6 +3,7 @@ package com.dwinovo.numen.mcp.server;
 import com.dwinovo.numen.Constants;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
+import com.dwinovo.numen.api.ServerBrainConfiguration;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -15,6 +16,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -239,8 +241,14 @@ public final class McpServer {
             tools.add(toolDef("poll_server_events",
                     "Drain up to 64 recent dedicated-server events in FIFO order. Emits player_chat "
                             + "and external background task_finished lifecycle events, plus trusted "
-                            + "administrator test_instruction events published by server mods.",
+                            + "administrator test_instruction and brain_config_request events published "
+                            + "by server mods.",
                     pollEventsSchema()));
+            tools.add(toolDef("report_brain_config_state",
+                    "Internal server-brain control transport. Report the authoritative active model, "
+                            + "reasoning effort, revision, and supported catalog after processing a "
+                            + "brain_config_request. This tool never changes configuration itself.",
+                    brainConfigReportSchema()));
             tools.add(toolDef("send_chat",
                     "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",
                     sendChatSchema()));
@@ -335,6 +343,101 @@ public final class McpServer {
         return schema;
     }
 
+    private JsonObject brainConfigReportSchema() {
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "object");
+        JsonObject props = new JsonObject();
+
+        JsonObject requestId = new JsonObject();
+        requestId.addProperty("type", "string");
+        requestId.addProperty("maxLength", 128);
+        requestId.addProperty(
+                "description",
+                "Opaque requestId from brain_config_request; omit only for a startup state report.");
+        props.add("request_id", requestId);
+
+        JsonObject success = new JsonObject();
+        success.addProperty("type", "boolean");
+        props.add("success", success);
+
+        JsonObject applied = new JsonObject();
+        applied.addProperty("type", "boolean");
+        applied.addProperty(
+                "description",
+                "True only after the complete reported model/reasoning pair is active.");
+        props.add("applied", applied);
+
+        JsonObject error = new JsonObject();
+        error.addProperty("type", "string");
+        error.addProperty("maxLength", ServerBrainConfiguration.MAX_ERROR_LENGTH);
+        props.add("error", error);
+
+        JsonObject requester = new JsonObject();
+        requester.addProperty("type", "object");
+        requester.addProperty(
+                "description",
+                "Diagnostic echo of the request requester; request_id remains authoritative.");
+        props.add("requester", requester);
+
+        JsonObject current = new JsonObject();
+        current.addProperty("type", "object");
+        JsonObject currentProps = new JsonObject();
+        currentProps.add("model", boundedStringSchema(
+                ServerBrainConfiguration.MAX_MODEL_LENGTH));
+        currentProps.add("reasoning", boundedStringSchema(
+                ServerBrainConfiguration.MAX_REASONING_LENGTH));
+        currentProps.add("revision", boundedStringSchema(
+                ServerBrainConfiguration.MAX_REVISION_LENGTH));
+        current.add("properties", currentProps);
+        current.add("required", stringArray("model", "reasoning", "revision"));
+        props.add("current", current);
+
+        JsonObject catalogEntry = new JsonObject();
+        catalogEntry.addProperty("type", "object");
+        JsonObject catalogEntryProps = new JsonObject();
+        catalogEntryProps.add("model", boundedStringSchema(
+                ServerBrainConfiguration.MAX_MODEL_LENGTH));
+        JsonObject reasoning = new JsonObject();
+        reasoning.addProperty("type", "array");
+        reasoning.addProperty("minItems", 1);
+        reasoning.addProperty(
+                "maxItems",
+                ServerBrainConfiguration.MAX_REASONING_PER_MODEL);
+        reasoning.add("items", boundedStringSchema(
+                ServerBrainConfiguration.MAX_REASONING_LENGTH));
+        catalogEntryProps.add("reasoning", reasoning);
+        catalogEntry.add("properties", catalogEntryProps);
+        catalogEntry.add("required", stringArray("model", "reasoning"));
+
+        JsonObject catalog = new JsonObject();
+        catalog.addProperty("type", "array");
+        catalog.addProperty(
+                "maxItems",
+                ServerBrainConfiguration.MAX_CATALOG_ENTRIES);
+        catalog.add("items", catalogEntry);
+        props.add("catalog", catalog);
+
+        schema.add("properties", props);
+        schema.add(
+                "required",
+                stringArray("success", "applied", "current", "catalog"));
+        return schema;
+    }
+
+    private JsonObject boundedStringSchema(int maxLength) {
+        JsonObject value = new JsonObject();
+        value.addProperty("type", "string");
+        value.addProperty("minLength", 1);
+        value.addProperty("maxLength", maxLength);
+        return value;
+    }
+
+    private JsonArray stringArray(String... values) {
+        JsonArray array = new JsonArray();
+        for (String value : values) array.add(value);
+        return array;
+    }
+
     private JsonObject runCommandSchema() {
         JsonObject schema = new JsonObject();
         schema.addProperty("type", "object");
@@ -397,6 +500,8 @@ public final class McpServer {
                 case "create_companion" -> handleCreate(args);
                 case "delete_companion" -> handleDelete(args);
                 case "poll_server_events" -> handlePollServerEvents(args);
+                case "report_brain_config_state" ->
+                        handleReportBrainConfigState(args);
                 case "send_chat" -> handleSendChat(args);
                 case "run_command" -> handleRunCommand(args);
                 default -> handleToolInvoke(name, args);
@@ -455,6 +560,157 @@ public final class McpServer {
         int limit = args.has("limit") && !args.get("limit").isJsonNull()
                 ? args.get("limit").getAsInt() : 16;
         return content(gson.toJson(control.pollServerEvents(limit)), false);
+    }
+
+    private JsonObject handleReportBrainConfigState(JsonObject args) {
+        if (!control.supportsServerChat()) {
+            return content(
+                    "brain configuration reports are unavailable in client-hosted MCP mode",
+                    true);
+        }
+        if (!args.has("success")
+                || args.get("success").isJsonNull()
+                || !args.get("success").isJsonPrimitive()
+                || !args.getAsJsonPrimitive("success").isBoolean()) {
+            throw new IllegalArgumentException(
+                    "report_brain_config_state needs boolean 'success'");
+        }
+        boolean success = args.get("success").getAsBoolean();
+        if (!args.has("applied")
+                || args.get("applied").isJsonNull()
+                || !args.get("applied").isJsonPrimitive()
+                || !args.getAsJsonPrimitive("applied").isBoolean()) {
+            throw new IllegalArgumentException(
+                    "report_brain_config_state needs boolean 'applied'");
+        }
+        boolean applied = args.get("applied").getAsBoolean();
+        String requestId = optionalString(
+                args, "request_id", 128);
+        String error = optionalString(
+                args, "error", ServerBrainConfiguration.MAX_ERROR_LENGTH);
+
+        JsonObject current = requiredObject(args, "current");
+        String model = requiredString(
+                current,
+                "model",
+                ServerBrainConfiguration.MAX_MODEL_LENGTH);
+        String reasoning = requiredString(
+                current,
+                "reasoning",
+                ServerBrainConfiguration.MAX_REASONING_LENGTH);
+        String revision = requiredString(
+                current,
+                "revision",
+                ServerBrainConfiguration.MAX_REVISION_LENGTH);
+
+        if (!args.has("catalog") || !args.get("catalog").isJsonArray()) {
+            throw new IllegalArgumentException(
+                    "report_brain_config_state needs array 'catalog'");
+        }
+        JsonArray catalogJson = args.getAsJsonArray("catalog");
+        if (catalogJson.size() > ServerBrainConfiguration.MAX_CATALOG_ENTRIES) {
+            throw new IllegalArgumentException(
+                    "catalog exceeds "
+                            + ServerBrainConfiguration.MAX_CATALOG_ENTRIES
+                            + " entries");
+        }
+        List<ServerBrainConfiguration.CatalogEntry> catalog =
+                new ArrayList<>(catalogJson.size());
+        for (JsonElement item : catalogJson) {
+            if (!item.isJsonObject()) {
+                throw new IllegalArgumentException(
+                        "each catalog entry must be an object");
+            }
+            JsonObject entry = item.getAsJsonObject();
+            String entryModel = requiredString(
+                    entry,
+                    "model",
+                    ServerBrainConfiguration.MAX_MODEL_LENGTH);
+            if (!entry.has("reasoning")
+                    || !entry.get("reasoning").isJsonArray()) {
+                throw new IllegalArgumentException(
+                        "each catalog entry needs array 'reasoning'");
+            }
+            JsonArray effortsJson = entry.getAsJsonArray("reasoning");
+            if (effortsJson.size()
+                    > ServerBrainConfiguration.MAX_REASONING_PER_MODEL) {
+                throw new IllegalArgumentException(
+                        "catalog reasoning exceeds "
+                                + ServerBrainConfiguration
+                                        .MAX_REASONING_PER_MODEL
+                                + " entries");
+            }
+            List<String> efforts = new ArrayList<>(effortsJson.size());
+            for (JsonElement effort : effortsJson) {
+                if (!effort.isJsonPrimitive()
+                        || !effort.getAsJsonPrimitive().isString()) {
+                    throw new IllegalArgumentException(
+                            "catalog reasoning values must be strings");
+                }
+                efforts.add(effort.getAsString());
+            }
+            catalog.add(new ServerBrainConfiguration.CatalogEntry(
+                    entryModel, efforts));
+        }
+
+        ServerBrainConfiguration.Report report =
+                ServerBrainConfiguration.acceptReport(
+                        requestId,
+                        success,
+                        applied,
+                        error,
+                        model,
+                        reasoning,
+                        revision,
+                        catalog);
+        JsonObject accepted = new JsonObject();
+        accepted.addProperty("accepted", true);
+        if (report.requestId() != null) {
+            accepted.addProperty("request_id", report.requestId());
+            accepted.addProperty(
+                    "matched_requester",
+                    report.requester() != null);
+        }
+        return content(gson.toJson(accepted), false);
+    }
+
+    private JsonObject requiredObject(JsonObject parent, String key) {
+        if (!parent.has(key) || !parent.get(key).isJsonObject()) {
+            throw new IllegalArgumentException(
+                    "report_brain_config_state needs object '" + key + "'");
+        }
+        return parent.getAsJsonObject(key);
+    }
+
+    private String requiredString(
+            JsonObject object,
+            String key,
+            int maxLength) {
+        String value = optionalString(object, key, maxLength);
+        if (value == null) {
+            throw new IllegalArgumentException(
+                    "report_brain_config_state needs non-empty '" + key + "'");
+        }
+        return value;
+    }
+
+    private String optionalString(
+            JsonObject object,
+            String key,
+            int maxLength) {
+        if (!object.has(key) || object.get(key).isJsonNull()) return null;
+        JsonElement element = object.get(key);
+        if (!element.isJsonPrimitive()
+                || !element.getAsJsonPrimitive().isString()) {
+            throw new IllegalArgumentException("'" + key + "' must be a string");
+        }
+        String value = element.getAsString().trim();
+        if (value.isEmpty()) return null;
+        if (value.length() > maxLength) {
+            throw new IllegalArgumentException(
+                    "'" + key + "' exceeds " + maxLength + " characters");
+        }
+        return value;
     }
 
     private JsonObject handleSendChat(JsonObject args) throws Exception {
