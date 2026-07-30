@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExternalTaskEventsTest {
 
@@ -27,6 +29,24 @@ class ExternalTaskEventsTest {
         ExternalTaskEvents.publish(event("t2"));
 
         assertEquals(List.of(first), received);
+    }
+
+    @Test
+    void claimingSubscriptionSuppressesOnlyOwnedExternalBrainCompletion() {
+        List<ExternalTaskEvents.Event> observed = new ArrayList<>();
+        ExternalTaskEvents.subscribe(observed::add);
+        ExternalTaskEvents.Subscription claiming =
+                ExternalTaskEvents.subscribeClaiming(event -> event.taskId().equals("t-owned"));
+
+        ExternalTaskEvents.Event owned = event("t-owned");
+        ExternalTaskEvents.Event ordinary = event("t-other");
+
+        assertTrue(ExternalTaskEvents.publishClaimable(owned));
+        assertFalse(ExternalTaskEvents.publishClaimable(ordinary));
+        assertEquals(List.of(owned, ordinary), observed);
+
+        claiming.close();
+        assertFalse(ExternalTaskEvents.publishClaimable(owned));
     }
 
     private static ExternalTaskEvents.Event event(String id) {

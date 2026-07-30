@@ -2,7 +2,6 @@ package com.dwinovo.numen.task;
 
 import com.dwinovo.numen.network.payload.TaskResultPayload;
 import com.dwinovo.numen.entity.NumenPlayer;
-import com.dwinovo.numen.mcp.server.ServerBrainEvents;
 import com.dwinovo.numen.platform.Services;
 import com.dwinovo.numen.task.TaskResult;
 import com.dwinovo.numen.task.control.BodyControlClass;
@@ -153,16 +152,7 @@ public final class LlmTaskChain implements TaskChain {
                         default -> "failed";
                     };
                     String msg = result == null ? "no result produced" : result.message();
-                    com.dwinovo.numen.api.ExternalTaskEvents.publish(
-                            new com.dwinovo.numen.api.ExternalTaskEvents.Event(
-                                    player.getUUID(),
-                                    player.getName().getString(),
-                                    rec.publicId(),
-                                    rec.getToolName(),
-                                    status,
-                                    msg,
-                                    player.level().getGameTime()));
-                    ServerBrainEvents.publishTaskFinished(
+                    var event = new com.dwinovo.numen.api.ExternalTaskEvents.Event(
                             player.getUUID(),
                             player.getName().getString(),
                             rec.publicId(),
@@ -170,6 +160,11 @@ public final class LlmTaskChain implements TaskChain {
                             status,
                             msg,
                             player.level().getGameTime());
+                    boolean claimed =
+                            com.dwinovo.numen.api.ExternalTaskEvents.publishClaimable(event);
+                    if (!claimed) {
+                        com.dwinovo.numen.api.ExternalTaskEvents.publishExternalBrain(event);
+                    }
                     continue;
                 }
                 String status = switch (rec.getState()) {
