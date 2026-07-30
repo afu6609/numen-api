@@ -59,6 +59,9 @@ class ServerBrainEventsTest {
         assertEquals("Alex", event.playerName());
         assertEquals("hello", event.message());
         assertEquals("player_chat", event.type());
+        assertEquals(
+                ServerBrainEvents.serverSessionId(),
+                event.serverSessionId());
     }
 
     @Test
@@ -121,6 +124,9 @@ class ServerBrainEventsTest {
         assertEquals("done", event.status());
         assertEquals("arrived", event.message());
         assertEquals(99L, event.gameTime());
+        assertEquals(
+                ServerBrainEvents.serverSessionId(),
+                event.serverSessionId());
     }
 
     @Test
@@ -150,6 +156,9 @@ class ServerBrainEventsTest {
         assertEquals(Boolean.TRUE, event.freshThread());
         assertEquals(123L, event.gameTime());
         assertTrue(json.contains("\"runId\":\"arena-42\""));
+        assertTrue(json.contains(
+                "\"serverSessionId\":\""
+                        + ServerBrainEvents.serverSessionId() + "\""));
         assertTrue(json.contains(
                 "\"arenaAnchor\":{\"dimension\":\"minecraft:overworld\","
                         + "\"x\":120,\"y\":72,\"z\":-40}"));

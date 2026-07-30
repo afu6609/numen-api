@@ -1,12 +1,9 @@
 package com.dwinovo.numen.task;
 
-import com.dwinovo.numen.task.CompanionTickDispatcher;
-import com.dwinovo.numen.task.TaskRecord;
-import com.dwinovo.numen.task.TaskState;
-import com.dwinovo.numen.agent.tool.Schema;
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.Schema;
 import com.dwinovo.numen.entity.NumenPlayer;
-import com.dwinovo.numen.task.TaskResult;
+import com.dwinovo.numen.mcp.server.ServerBrainEvents;
 import com.google.gson.JsonObject;
 
 import java.util.Map;
@@ -37,7 +34,12 @@ public final class TaskStatusTool implements NumenTool {
     public void onServerCall(String toolCallId, JsonObject args, NumenPlayer companion, Consumer<String> reply) {
         TaskRecord rec = CompanionTickDispatcher.currentTaskFor(companion.getUUID());
         if (rec == null) {
-            reply.accept(TaskResult.ok("身体空闲,没有后台任务。").toJson());
+            reply.accept(TaskResult.ok(
+                    "身体空闲,没有后台任务。",
+                    Map.of(
+                            "state", "idle",
+                            "server_session_id", ServerBrainEvents.serverSessionId()))
+                    .toJson());
             return;
         }
         long now = companion.level().getGameTime();
@@ -51,6 +53,8 @@ public final class TaskStatusTool implements NumenTool {
                         "task", rec.getToolName(),
                         "state", state,
                         "elapsed_s", elapsedS,
-                        "budget_left_s", budgetLeftS)).toJson());
+                        "budget_left_s", budgetLeftS,
+                        "server_session_id", ServerBrainEvents.serverSessionId()))
+                .toJson());
     }
 }

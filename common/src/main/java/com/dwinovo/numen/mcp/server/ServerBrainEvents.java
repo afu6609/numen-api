@@ -27,11 +27,19 @@ public final class ServerBrainEvents {
     private static final int MAX_CHAT_LENGTH = 256;
     private static final AtomicLong SEQUENCE = new AtomicLong();
     private static final ArrayDeque<Event> EVENTS = new ArrayDeque<>();
+    private static final String SERVER_SESSION_ID = UUID.randomUUID().toString();
 
     private ServerBrainEvents() {}
 
+    /** Unique to this Minecraft JVM lifetime; persisted sidecars use it to reject stale task ids. */
+    @com.dwinovo.numen.api.Internal
+    public static String serverSessionId() {
+        return SERVER_SESSION_ID;
+    }
+
     public record Event(
             long id,
+            String serverSessionId,
             String type,
             UUID playerUuid,
             String playerName,
@@ -62,6 +70,7 @@ public final class ServerBrainEvents {
         }
         Event event = new Event(
                 SEQUENCE.incrementAndGet(),
+                SERVER_SESSION_ID,
                 "player_chat",
                 playerUuid,
                 cleanName,
@@ -104,6 +113,7 @@ public final class ServerBrainEvents {
         }
         return enqueue(new Event(
                 SEQUENCE.incrementAndGet(),
+                SERVER_SESSION_ID,
                 "console_chat",
                 null,
                 cleanSource,
@@ -155,6 +165,7 @@ public final class ServerBrainEvents {
         }
         enqueue(new Event(
                 SEQUENCE.incrementAndGet(),
+                SERVER_SESSION_ID,
                 "task_finished",
                 null,
                 null,
@@ -188,6 +199,7 @@ public final class ServerBrainEvents {
             long gameTime) {
         enqueue(new Event(
                 SEQUENCE.incrementAndGet(),
+                SERVER_SESSION_ID,
                 "test_instruction",
                 null,
                 null,
@@ -226,6 +238,7 @@ public final class ServerBrainEvents {
         }
         enqueue(new Event(
                 SEQUENCE.incrementAndGet(),
+                SERVER_SESSION_ID,
                 "brain_config_request",
                 null,
                 null,

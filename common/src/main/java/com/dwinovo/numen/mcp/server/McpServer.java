@@ -17,7 +17,10 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +52,7 @@ public final class McpServer {
     private static final String SERVER_VERSION = "0.1.0";
     /** Roster / acquire / release are fast; only tool actions use the config timeout. */
     private static final int CONTROL_TIMEOUT_SECONDS = 10;
+    private static final int MAX_COMMAND_RECEIPTS = 256;
 
     /**
      * Sent to the connecting agent in the {@code initialize} handshake (MCP's
@@ -84,6 +88,8 @@ public final class McpServer {
     private final McpConfig config;
     private final CompanionControl control;
     private final Gson gson = new Gson();
+    private final CommandDeduplicator commandDeduplicator =
+            new CommandDeduplicator(MAX_COMMAND_RECEIPTS);
     private HttpServer http;
 
     public McpServer(McpConfig config, CompanionControl control) {
@@ -452,10 +458,16 @@ public final class McpServer {
                 "description",
                 "A command allowed by the dedicated-server semantic whitelist.");
         props.add("command", command);
+        JsonObject requestId = boundedStringSchema(160);
+        requestId.addProperty(
+                "description",
+                "Stable idempotency key for this server event. Reusing it never runs the command twice.");
+        props.add("request_id", requestId);
         schema.add("properties", props);
         JsonArray required = new JsonArray();
         required.add("companion");
         required.add("command");
+        required.add("request_id");
         schema.add("required", required);
         return schema;
     }
@@ -745,9 +757,106 @@ public final class McpServer {
         if (command.isEmpty() || command.length() > 128) {
             return content("run_command needs a command of at most 128 characters", true);
         }
-        String executed = control.runRestrictedCommand(target, command)
-                .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        return content("executed " + executed, false);
+        String requestId = args.has("request_id") && !args.get("request_id").isJsonNull()
+                ? args.get("request_id").getAsString().trim() : "";
+        if (requestId.isEmpty() || requestId.length() > 160) {
+            return content("run_command needs a stable 'request_id' of at most 160 characters", true);
+        }
+        CommandDeduplicator.Outcome outcome = commandDeduplicator.execute(
+                requestId,
+                target,
+                command,
+                () -> control.runRestrictedCommand(target, command)
+                        .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        return content(
+                (outcome.duplicate() ? "already " : "") + "executed " + outcome.result(),
+                false);
+    }
+
+    /**
+     * Keeps operator commands exactly-once within one Minecraft JVM session.
+     * Failed or timed-out executions remain UNKNOWN and are never replayed:
+     * duplicating a command is more dangerous than asking the operator to
+     * inspect an uncertain outcome.
+     */
+    static final class CommandDeduplicator {
+        @FunctionalInterface
+        interface Operation {
+            String run() throws Exception;
+        }
+
+        record Outcome(String result, boolean duplicate) {}
+
+        private enum State {
+            IN_PROGRESS,
+            SUCCEEDED,
+            UNKNOWN
+        }
+
+        private record Receipt(UUID target, String command, State state, String result) {}
+
+        private final int maxReceipts;
+        private final LinkedHashMap<String, Receipt> receipts = new LinkedHashMap<>();
+
+        CommandDeduplicator(int maxReceipts) {
+            if (maxReceipts < 1) {
+                throw new IllegalArgumentException("maxReceipts must be positive");
+            }
+            this.maxReceipts = maxReceipts;
+        }
+
+        synchronized Outcome execute(
+                String requestId,
+                UUID target,
+                String command,
+                Operation operation) throws Exception {
+            Receipt existing = receipts.get(requestId);
+            if (existing != null) {
+                if (!existing.target().equals(target) || !existing.command().equals(command)) {
+                    throw new IllegalArgumentException(
+                            "request_id was already used for a different command");
+                }
+                if (existing.state() == State.SUCCEEDED) {
+                    return new Outcome(existing.result(), true);
+                }
+                throw new IllegalStateException(
+                        "previous command outcome is unknown; refusing to replay request_id");
+            }
+
+            makeRoom();
+            receipts.put(
+                    requestId,
+                    new Receipt(target, command, State.IN_PROGRESS, ""));
+            try {
+                String result = operation.run();
+                receipts.put(
+                        requestId,
+                        new Receipt(target, command, State.SUCCEEDED, result));
+                return new Outcome(result, false);
+            } catch (Exception error) {
+                receipts.put(
+                        requestId,
+                        new Receipt(target, command, State.UNKNOWN, ""));
+                throw error;
+            }
+        }
+
+        private void makeRoom() {
+            if (receipts.size() < maxReceipts) {
+                return;
+            }
+            Iterator<Map.Entry<String, Receipt>> iterator =
+                    receipts.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, Receipt> entry = iterator.next();
+                if (entry.getValue().state() == State.SUCCEEDED) {
+                    iterator.remove();
+                    return;
+                }
+            }
+            throw new IllegalStateException(
+                    "command receipt capacity is full of uncertain outcomes");
+        }
     }
 
     private JsonObject handleToolInvoke(String toolName, JsonObject args) throws Exception {

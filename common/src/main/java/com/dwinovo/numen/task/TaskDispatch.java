@@ -47,6 +47,12 @@ public final class TaskDispatch {
      * 异步在跑或排队)都拒绝。
      */
     public static void dispatchAsync(NumenPlayer companion, TaskRecord record, Consumer<String> reply) {
+        String actionId = record.getToolCallId();
+        if (actionId == null || actionId.isBlank()) {
+            reply.accept(TaskResult.fail(
+                    "异步任务缺少稳定 action_id,未受理。").toJson());
+            return;
+        }
         com.dwinovo.numen.task.control.BodyControlPolicy.Decision admission =
                 com.dwinovo.numen.task.control.BodyControlPolicies.mayStart(
                         companion, "numen-task:" + record.publicId());
@@ -70,6 +76,10 @@ public final class TaskDispatch {
                 note,
                 java.util.Map.of(
                         "task_id", record.publicId(),
+                        "action_id", actionId,
+                        "server_session_id",
+                                com.dwinovo.numen.mcp.server.ServerBrainEvents
+                                        .serverSessionId(),
                         "task", record.getToolName(),
                         "async", true)).toJson());
     }
