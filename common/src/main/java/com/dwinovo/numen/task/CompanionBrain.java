@@ -96,21 +96,60 @@ final class CompanionBrain {
             // Everything dormant (idle body). Release whoever held control, then
             // finalize + drain — a record cancelled out-of-band must still ship.
             if (running != null) {
-                running.onInterrupt(companion);
+                if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
+                        companion, running)) {
+                    running.onInterrupt(companion);
+                    com.dwinovo.numen.entity.InputDriver.neutralize(companion);
+                }
+                com.dwinovo.numen.task.control.BodyControlPolicies.release(
+                        companion.getUUID(), running.controlActorId());
                 running = null;
             }
             // Idle retry for entries a refused flush left behind (the owner was
             // offline when they were reported) — a no-op when the log is empty.
             bodyLog.flush();
+            if (llm.hasWork()) {
+                llm.freezeTick(companion);
+            }
             llm.finalizeTerminal();
             llm.drainResults(companion);
             return;
         }
 
+        boolean switching = running != best;
         if (running != null && running != best) {
-            running.onInterrupt(companion);
+            if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
+                    companion, running)) {
+                running.onInterrupt(companion);
+                com.dwinovo.numen.entity.InputDriver.neutralize(companion);
+            }
+            com.dwinovo.numen.task.control.BodyControlPolicies.release(
+                    companion.getUUID(), running.controlActorId());
+            running = null;
         }
+
+        com.dwinovo.numen.task.control.BodyControlPolicy.Decision control =
+                com.dwinovo.numen.task.control.BodyControlPolicies.acquire(
+                        companion, best);
+        if (!control.granted()) {
+            if (!switching && running == best) {
+                com.dwinovo.numen.task.control.BodyControlPolicies.release(
+                        companion.getUUID(), running.controlActorId());
+            }
+            running = null;
+            llm.freezeTick(companion);
+            llm.finalizeTerminal();
+            llm.drainResults(companion);
+            return;
+        }
+
         running = best;
+        if (switching) {
+            // The new winner now owns the lease, so it is the only controller
+            // allowed to clear sticky inputs left by its predecessor.
+            com.dwinovo.numen.entity.InputDriver.neutralize(companion);
+            best.onResume(companion);
+        }
 
         // A non-LLM (survival) chain holds the body this tick → the paused LLM task
         // must not burn its deadline.
@@ -139,5 +178,15 @@ final class CompanionBrain {
         TaskSessionHooks.fireSessionEnd(companion);
         llm.dropActiveNoResult();
         bodyLog.flush();
+        if (running != null) {
+            if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
+                    companion, running)) {
+                running.onInterrupt(companion);
+                com.dwinovo.numen.entity.InputDriver.neutralize(companion);
+            }
+            com.dwinovo.numen.task.control.BodyControlPolicies.release(
+                    companion.getUUID(), running.controlActorId());
+            running = null;
+        }
     }
 }

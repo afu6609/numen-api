@@ -26,6 +26,13 @@ public final class TaskDispatch {
      * 等于把当前回合(和串行的工具派发器)整个卡死;拒绝话术把选择权丢回给 LLM。
      */
     public static void enqueue(NumenPlayer companion, TaskRecord record, Consumer<String> reply) {
+        com.dwinovo.numen.task.control.BodyControlPolicy.Decision admission =
+                com.dwinovo.numen.task.control.BodyControlPolicies.mayStart(
+                        companion, "numen-task:" + record.publicId());
+        if (!admission.granted()) {
+            reply.accept(TaskResult.fail(admission.reason()).toJson());
+            return;
+        }
         TaskRecord busy = CompanionTickDispatcher.asyncTaskFor(companion.getUUID());
         if (busy != null) {
             reply.accept(TaskResult.fail(busyMessage(busy)).toJson());
@@ -40,6 +47,13 @@ public final class TaskDispatch {
      * 异步在跑或排队)都拒绝。
      */
     public static void dispatchAsync(NumenPlayer companion, TaskRecord record, Consumer<String> reply) {
+        com.dwinovo.numen.task.control.BodyControlPolicy.Decision admission =
+                com.dwinovo.numen.task.control.BodyControlPolicies.mayStart(
+                        companion, "numen-task:" + record.publicId());
+        if (!admission.granted()) {
+            reply.accept(TaskResult.fail(admission.reason()).toJson());
+            return;
+        }
         if (CompanionTickDispatcher.llmLaneBusy(companion.getUUID())) {
             TaskRecord busy = CompanionTickDispatcher.asyncTaskFor(companion.getUUID());
             reply.accept(TaskResult.fail(busy != null

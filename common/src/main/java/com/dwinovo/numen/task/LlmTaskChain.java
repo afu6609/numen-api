@@ -5,6 +5,7 @@ import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.mcp.server.ServerBrainEvents;
 import com.dwinovo.numen.platform.Services;
 import com.dwinovo.numen.task.TaskResult;
+import com.dwinovo.numen.task.control.BodyControlClass;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
@@ -36,6 +37,11 @@ public final class LlmTaskChain implements TaskChain {
     @Override
     public String name() {
         return "llm";
+    }
+
+    @Override
+    public BodyControlClass controlClass() {
+        return BodyControlClass.DIRECTED_ACTION;
     }
 
     /**
@@ -99,6 +105,13 @@ public final class LlmTaskChain implements TaskChain {
     public void onInterrupt(NumenPlayer companion) {
         if (task instanceof Suspendable s) {
             s.suspend();
+        }
+    }
+
+    @Override
+    public void onResume(NumenPlayer companion) {
+        if (task instanceof Suspendable s) {
+            s.resume();
         }
     }
 
@@ -191,6 +204,11 @@ public final class LlmTaskChain implements TaskChain {
     TaskRecord asyncRecord() {
         if (record != null && record.isAsync()) return record;
         return queue.peekAsync();
+    }
+
+    /** Current or next physical record, including synchronous tool calls. */
+    TaskRecord currentRecord() {
+        return record != null ? record : queue.peekAny();
     }
 
     // ---- lifecycle finalizers (called by CompanionTickDispatcher via CompanionLifecycle) ----

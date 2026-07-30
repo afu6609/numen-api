@@ -95,6 +95,11 @@ public final class TaskQueue {
         return null;
     }
 
+    /** First queued record of either delivery mode, or {@code null}. */
+    public TaskRecord peekAny() {
+        return pending.peekFirst();
+    }
+
     /**
      * Cancel every pending record (mark TaskState.CANCELLED, move to outbox).
      * Called on entity removal / death so the agent loop can flush results

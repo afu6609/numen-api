@@ -4,6 +4,7 @@ import com.dwinovo.numen.entity.CompanionSpeech;
 import com.dwinovo.numen.entity.InputDriver;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.task.TaskChain;
+import com.dwinovo.numen.task.control.BodyControlClass;
 import com.dwinovo.numen.task.reflex.Reflex;
 import com.dwinovo.numen.task.reflex.ReflexRegistry;
 import net.minecraft.server.level.ServerPlayer;
@@ -45,6 +46,11 @@ public final class SpeakingLookChain implements TaskChain, Reflex {
     @Override
     public String name() {
         return "speaking_look";
+    }
+
+    @Override
+    public BodyControlClass controlClass() {
+        return BodyControlClass.SOCIAL_POSTURE;
     }
 
     @Override

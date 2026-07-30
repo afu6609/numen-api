@@ -66,6 +66,16 @@ public final class InputDriver {
         p.setSprinting(false);
     }
 
+    /**
+     * Neutral whole-body handoff state. Use on every controller transition so
+     * the next owner never inherits movement, sneak, or a held use-item input.
+     */
+    public static void neutralize(ServerPlayer p) {
+        halt(p);
+        p.setShiftKeyDown(false);
+        p.stopUsingItem();
+    }
+
     /** Turn the body (and head) to face {@code target} horizontally — travel goes where yaw points. */
     private static void faceYaw(ServerPlayer p, Vec3 target) {
         double dx = target.x - p.getX();

@@ -1,6 +1,7 @@
 package com.dwinovo.numen.task;
 
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.control.BodyControlClass;
 
 /**
  * One competing behavior for a companion body: the
@@ -30,6 +31,32 @@ public interface TaskChain {
     /** Called on the tick this chain LOSES control to a higher-priority one. */
     void onInterrupt(NumenPlayer companion);
 
+    /**
+     * Called on the edge where this chain regains control after another owner.
+     * Most reflexes need no special work; task chains use it to restore a
+     * suspended state machine without replaying {@code start()}.
+     */
+    default void onResume(NumenPlayer companion) {}
+
     /** Stable short name for logging / the debug overlay. */
     String name();
+
+    /**
+     * Whole-body control class used by an optional external arbiter.
+     * Third-party chains default to autonomous, the safest classification when
+     * a supervised server has not explicitly reviewed them.
+     */
+    default BodyControlClass controlClass() {
+        return BodyControlClass.AUTONOMOUS_ACTION;
+    }
+
+    /** Stable actor identity for lease renewal and release. */
+    default String controlActorId() {
+        return "numen-chain:" + name();
+    }
+
+    /** Priority is independent of the chain's historical float bid. */
+    default int controlPriority() {
+        return controlClass().defaultPriority();
+    }
 }

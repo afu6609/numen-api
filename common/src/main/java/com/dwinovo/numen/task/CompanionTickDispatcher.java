@@ -76,6 +76,12 @@ public final class CompanionTickDispatcher {
         return brain == null ? null : brain.llm.asyncRecord();
     }
 
+    /** Any accepted physical task, including a synchronous tool call. */
+    public static TaskRecord currentTaskFor(UUID companionUuid) {
+        CompanionBrain brain = BRAINS.get(companionUuid);
+        return brain == null ? null : brain.llm.currentRecord();
+    }
+
     /** LLM 车道是否有任何工作(运行或排队,同步异步都算)。异步受理的占用判定用。 */
     public static boolean llmLaneBusy(UUID companionUuid) {
         CompanionBrain brain = BRAINS.get(companionUuid);
@@ -91,6 +97,21 @@ public final class CompanionTickDispatcher {
         CompanionBrain brain = BRAINS.get(player.getUUID());
         if (brain == null) return null;
         TaskRecord target = brain.llm.asyncRecord();
+        if (target == null) return null;
+        brain.queue.cancelAll(reason);
+        brain.llm.cancelActive();
+        TaskSessionHooks.fireSessionEnd(player);
+        return target;
+    }
+
+    /**
+     * Stop the unified Numen task lane regardless of synchronous/asynchronous
+     * delivery mode. Used by deterministic server-side stop controls.
+     */
+    public static TaskRecord stopAny(NumenPlayer player, String reason) {
+        CompanionBrain brain = BRAINS.get(player.getUUID());
+        if (brain == null) return null;
+        TaskRecord target = brain.llm.currentRecord();
         if (target == null) return null;
         brain.queue.cancelAll(reason);
         brain.llm.cancelActive();
@@ -124,5 +145,6 @@ public final class CompanionTickDispatcher {
             brain.llm.drainResults(player);
         }
         BRAINS.remove(id);   // the body is gone; don't leak its brain
+        com.dwinovo.numen.task.control.BodyControlPolicies.clear(id);
     }
 }

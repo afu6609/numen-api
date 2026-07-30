@@ -20,6 +20,11 @@ public final class ChainScheduler {
         TaskChain best = null;
         float bestPriority = Float.NEGATIVE_INFINITY;
         for (TaskChain chain : chains) {
+            if (!com.dwinovo.numen.task.control.BodyControlPolicies
+                    .mayProbe(companion, chain)
+                    .granted()) {
+                continue;
+            }
             float priority = chain.getPriority(companion);
             if (priority > bestPriority) {
                 bestPriority = priority;

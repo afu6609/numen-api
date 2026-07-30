@@ -42,7 +42,7 @@ public final class TaskStopTool implements NumenTool {
     @Override
     public void onServerCall(String toolCallId, JsonObject args, NumenPlayer companion, Consumer<String> reply) {
         Args a = GSON.fromJson(args, Args.class);
-        TaskRecord active = CompanionTickDispatcher.asyncTaskFor(companion.getUUID());
+        TaskRecord active = CompanionTickDispatcher.currentTaskFor(companion.getUUID());
         if (active == null) {
             reply.accept(TaskResult.fail("没有进行中的后台任务,不需要叫停。").toJson());
             return;
@@ -53,7 +53,7 @@ public final class TaskStopTool implements NumenTool {
                     + "(" + active.describe() + "),没有 " + a.task_id() + "。").toJson());
             return;
         }
-        CompanionTickDispatcher.stopActive(companion, "stopped by task_stop");
+        CompanionTickDispatcher.stopAny(companion, "stopped by task_stop");
         reply.accept(TaskResult.ok("已叫停 " + active.publicId() + "(" + active.describe()
                 + ")。收尾结果会以 task_finished(status=stopped) 事件送达。",
                 Map.of("task_id", active.publicId())).toJson());
