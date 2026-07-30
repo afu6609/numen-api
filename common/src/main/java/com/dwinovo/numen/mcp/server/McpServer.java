@@ -69,8 +69,9 @@ public final class McpServer {
             then perceive to confirm. Every action tool takes a 'companion' argument (name or id), so each \
             call targets one companion; just drive it, there is no take-control step.
 
-            On a dedicated server, poll_server_events drains recent human player chat, external task lifecycle, \
-            and trusted administrator test instructions in FIFO order. Decide whether each player chat should be \
+            On a dedicated server, poll_server_events drains recent human player chat, trusted server-console \
+            chat, external task lifecycle, and trusted administrator test instructions in FIFO order. Decide \
+            whether each chat should be \
             ignored, answered, or turned into game actions. Use send_chat to \
             answer as a named companion; keep replies natural and concise, and never answer every message \
             merely because it was observed.

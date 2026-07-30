@@ -81,6 +81,49 @@ public final class ServerBrainEvents {
     }
 
     /**
+     * Publication target for trusted, already-validated server-console chat.
+     * Callers outside the engine should use
+     * {@link ServerBrainAdminEvents#publishConsoleChat}.
+     *
+     * @return whether the event was accepted by the bounded queue
+     */
+    @com.dwinovo.numen.api.Internal
+    public static boolean publishConsoleChat(
+            String sourceName,
+            String message,
+            long gameTime) {
+        if (sourceName == null || message == null) {
+            throw new IllegalArgumentException(
+                    "console source name and message are required");
+        }
+        String cleanSource = sourceName.trim();
+        String cleanMessage = message.trim();
+        if (cleanSource.isEmpty() || cleanMessage.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "console source name and message must not be blank");
+        }
+        return enqueue(new Event(
+                SEQUENCE.incrementAndGet(),
+                "console_chat",
+                null,
+                cleanSource,
+                null,
+                null,
+                null,
+                null,
+                null,
+                cleanMessage,
+                null,
+                null,
+                null,
+                gameTime,
+                Instant.now().toEpochMilli(),
+                Map.of(
+                        "channel", "server_console",
+                        "trusted_operator", true)));
+    }
+
+    /**
      * Wake the external dedicated-server brain when one of its background
      * actions reaches a terminal state. The event intentionally contains only
      * the task envelope; the brain re-perceives the live world before deciding
@@ -200,7 +243,7 @@ public final class ServerBrainEvents {
                 Map.copyOf(data)));
     }
 
-    private static void enqueue(Event event) {
+    private static boolean enqueue(Event event) {
         synchronized (EVENTS) {
             while (EVENTS.size() >= MAX_QUEUED_EVENTS) {
                 if (dropOldestChat()) continue;
@@ -212,9 +255,10 @@ public final class ServerBrainEvents {
                 if (dropOldestNonControlEvent()) continue;
                 // A burst of ordinary telemetry/chat must never evict an
                 // already accepted operator/test control request.
-                return;
+                return false;
             }
             EVENTS.addLast(event);
+            return true;
         }
     }
 
@@ -226,7 +270,9 @@ public final class ServerBrainEvents {
     private static boolean dropOldestChat() {
         Iterator<Event> iterator = EVENTS.iterator();
         while (iterator.hasNext()) {
-            if ("player_chat".equals(iterator.next().type())) {
+            String type = iterator.next().type();
+            if ("player_chat".equals(type)
+                    || "console_chat".equals(type)) {
                 iterator.remove();
                 return true;
             }

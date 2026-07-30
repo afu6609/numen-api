@@ -18,6 +18,8 @@ public final class ServerBrainAdminEvents {
     public static final int MAX_RUN_ID_LENGTH = 128;
     public static final int MAX_INSTRUCTION_LENGTH = 2_048;
     public static final int MAX_DIMENSION_LENGTH = 128;
+    public static final int MAX_CONSOLE_SOURCE_LENGTH = 64;
+    public static final int MAX_CONSOLE_MESSAGE_LENGTH = 256;
     private static final int MAX_COMPANION_NAME_LENGTH = 64;
 
     private ServerBrainAdminEvents() {}
@@ -97,6 +99,31 @@ public final class ServerBrainAdminEvents {
                         MAX_INSTRUCTION_LENGTH),
                 arenaAnchor,
                 freshThread,
+                gameTime);
+    }
+
+    /**
+     * Publish one line authored by a trusted dedicated-server console.
+     *
+     * <p>The event carries no player UUID because a panel/RCON console has no
+     * in-world player body. {@code true} means the bounded event was accepted
+     * by the external-brain queue; {@code false} means the queue was occupied
+     * exclusively by higher-priority control requests and the line was not
+     * accepted.
+     */
+    public static boolean publishConsoleChat(
+            String sourceName,
+            String message,
+            long gameTime) {
+        return ServerBrainEvents.publishConsoleChat(
+                requiredBounded(
+                        sourceName,
+                        "sourceName",
+                        MAX_CONSOLE_SOURCE_LENGTH),
+                requiredBounded(
+                        message,
+                        "message",
+                        MAX_CONSOLE_MESSAGE_LENGTH),
                 gameTime);
     }
 

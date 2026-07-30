@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -58,6 +59,50 @@ class ServerBrainEventsTest {
         assertEquals("Alex", event.playerName());
         assertEquals("hello", event.message());
         assertEquals("player_chat", event.type());
+    }
+
+    @Test
+    void trustedAdminApiPublishesBoundedConsoleChatEnvelope() {
+        assertTrue(ServerBrainAdminEvents.publishConsoleChat(
+                " Server ", "  hello from the panel  ", 72L));
+
+        ServerBrainEvents.Event event = ServerBrainEvents.poll(1).get(0);
+
+        assertEquals("console_chat", event.type());
+        assertNull(event.playerUuid());
+        assertEquals("Server", event.playerName());
+        assertEquals("hello from the panel", event.message());
+        assertEquals(72L, event.gameTime());
+        assertEquals(
+                Map.of(
+                        "channel", "server_console",
+                        "trusted_operator", true),
+                event.data());
+    }
+
+    @Test
+    void trustedAdminApiRejectsInvalidConsoleChatWithoutQueuingIt() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ServerBrainAdminEvents.publishConsoleChat(
+                        " ", "hello", 0L));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ServerBrainAdminEvents.publishConsoleChat(
+                        "Server",
+                        "x".repeat(
+                                ServerBrainAdminEvents
+                                        .MAX_CONSOLE_MESSAGE_LENGTH + 1),
+                        0L));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ServerBrainAdminEvents.publishConsoleChat(
+                        "x".repeat(
+                                ServerBrainAdminEvents
+                                        .MAX_CONSOLE_SOURCE_LENGTH + 1),
+                        "hello",
+                        0L));
+        assertTrue(ServerBrainEvents.poll(16).isEmpty());
     }
 
     @Test
