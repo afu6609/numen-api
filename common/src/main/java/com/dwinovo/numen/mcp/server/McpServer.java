@@ -257,7 +257,9 @@ public final class McpServer {
                             + "brain_config_request. This tool never changes configuration itself.",
                     brainConfigReportSchema()));
             tools.add(toolDef("send_chat",
-                    "Send a short chat line from a companion. Vanilla clients see it in ordinary <name> text form.",
+                    "Send one plain-text chat line from a companion. Vanilla clients see it in "
+                            + "ordinary <name> text form. This tool never executes commands and "
+                            + "rejects messages beginning with '/'.",
                     sendChatSchema()));
         }
         if (control.supportsServerCommands()) {
@@ -340,7 +342,9 @@ public final class McpServer {
         message.addProperty("type", "string");
         message.addProperty("minLength", 1);
         message.addProperty("maxLength", 256);
-        message.addProperty("description", "The natural, concise chat line to send.");
+        message.addProperty("description",
+                "The natural, concise plain-text chat line to send. It must not begin with '/' "
+                        + "and cannot be used to execute or simulate a command.");
         props.add("message", message);
         schema.add("properties", props);
         JsonArray required = new JsonArray();
@@ -739,9 +743,19 @@ public final class McpServer {
         if (message.isEmpty() || message.length() > 256) {
             return content("send_chat needs a non-empty 'message' of at most 256 characters", true);
         }
+        if (isSlashCommandChat(message)) {
+            return content(
+                    "send_chat only displays ordinary chat and rejects slash commands; "
+                            + "no server command was executed",
+                    true);
+        }
         boolean ok = control.sendChat(target, message)
                 .get(CONTROL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         return content(ok ? "sent" : "could not send chat from that companion", !ok);
+    }
+
+    static boolean isSlashCommandChat(String message) {
+        return message != null && message.stripLeading().startsWith("/");
     }
 
     private JsonObject handleRunCommand(JsonObject args) throws Exception {
