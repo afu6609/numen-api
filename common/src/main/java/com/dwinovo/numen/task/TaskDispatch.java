@@ -13,6 +13,8 @@ import java.util.function.Consumer;
  */
 public final class TaskDispatch {
 
+    private static final String LLM_CONTROL_ACTOR = "numen-chain:llm";
+
     private TaskDispatch() {}
 
     /** 任务上下文:调用 id + 身体当前游戏刻(deadline 的起点)。 */
@@ -28,7 +30,7 @@ public final class TaskDispatch {
     public static void enqueue(NumenPlayer companion, TaskRecord record, Consumer<String> reply) {
         com.dwinovo.numen.task.control.BodyControlPolicy.Decision admission =
                 com.dwinovo.numen.task.control.BodyControlPolicies.mayStart(
-                        companion, "numen-task:" + record.publicId());
+                        companion, LLM_CONTROL_ACTOR, record.publicId());
         if (!admission.granted()) {
             reply.accept(TaskResult.fail(admission.reason()).toJson());
             return;
@@ -55,7 +57,7 @@ public final class TaskDispatch {
         }
         com.dwinovo.numen.task.control.BodyControlPolicy.Decision admission =
                 com.dwinovo.numen.task.control.BodyControlPolicies.mayStart(
-                        companion, "numen-task:" + record.publicId());
+                        companion, LLM_CONTROL_ACTOR, record.publicId());
         if (!admission.granted()) {
             reply.accept(TaskResult.fail(admission.reason()).toJson());
             return;

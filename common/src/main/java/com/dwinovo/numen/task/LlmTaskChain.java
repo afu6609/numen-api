@@ -43,6 +43,12 @@ public final class LlmTaskChain implements TaskChain {
         return BodyControlClass.DIRECTED_ACTION;
     }
 
+    @Override
+    public String controlSessionId() {
+        TaskRecord current = currentRecord();
+        return current == null ? controlActorId() : current.publicId();
+    }
+
     /**
      * 本链的出价依据(也是异步受理闸门的占用判定):有运行中或排队中的记录
      * 即有工作。

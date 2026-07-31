@@ -1,9 +1,12 @@
 package com.dwinovo.numen.task;
 
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.control.BodyControlPolicies;
+import com.dwinovo.numen.task.control.BodyControlPolicy;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * One companion body's scheduler — the per-UUID value {@code CompanionTickDispatcher}
@@ -52,6 +55,13 @@ final class CompanionBrain {
     /** Last tick's winner, so we can fire {@code onInterrupt} exactly on the switching edge. */
     private TaskChain running;
 
+    /**
+     * Exact immutable identity from the last successful acquire. Never rebuild
+     * this from {@link #running}: an LLM chain can advance to another record
+     * before the old lease is released.
+     */
+    private BodyControlPolicy.Request runningRequest;
+
     /** Task-idle edge for the hand pin (pure counter; see {@link #HAND_PIN_GRACE_TICKS}). */
     private final com.dwinovo.numen.task.HandPinRelease handPinRelease =
             new com.dwinovo.numen.task.HandPinRelease(HAND_PIN_GRACE_TICKS);
@@ -95,15 +105,8 @@ final class CompanionBrain {
         if (best == null) {
             // Everything dormant (idle body). Release whoever held control, then
             // finalize + drain — a record cancelled out-of-band must still ship.
-            if (running != null) {
-                if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
-                        companion, running)) {
-                    running.onInterrupt(companion);
-                    com.dwinovo.numen.entity.InputDriver.neutralize(companion);
-                }
-                com.dwinovo.numen.task.control.BodyControlPolicies.release(
-                        companion.getUUID(), running.controlActorId());
-                running = null;
+            if (running != null || runningRequest != null) {
+                interruptAndRelease(companion);
             }
             // Idle retry for entries a refused flush left behind (the owner was
             // offline when they were reported) — a no-op when the log is empty.
@@ -116,27 +119,26 @@ final class CompanionBrain {
             return;
         }
 
-        boolean switching = running != best;
-        if (running != null && running != best) {
-            if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
-                    companion, running)) {
-                running.onInterrupt(companion);
-                com.dwinovo.numen.entity.InputDriver.neutralize(companion);
-            }
-            com.dwinovo.numen.task.control.BodyControlPolicies.release(
-                    companion.getUUID(), running.controlActorId());
-            running = null;
+        BodyControlPolicy.Request candidate =
+                BodyControlPolicies.requestFor(companion, best);
+        boolean switching = running != best
+                || !sameControlSession(runningRequest, candidate);
+        if ((running != null || runningRequest != null) && switching) {
+            interruptAndRelease(companion);
         }
 
-        com.dwinovo.numen.task.control.BodyControlPolicy.Decision control =
-                com.dwinovo.numen.task.control.BodyControlPolicies.acquire(
-                        companion, best);
+        BodyControlPolicy.Decision control =
+                BodyControlPolicies.acquire(candidate);
         if (!control.granted()) {
             if (!switching && running == best) {
-                com.dwinovo.numen.task.control.BodyControlPolicies.release(
-                        companion.getUUID(), running.controlActorId());
+                // Renewal of the same session was refused. Release the last
+                // identity that really acquired, never the rejected candidate.
+                if (runningRequest != null) {
+                    BodyControlPolicies.release(runningRequest);
+                }
             }
             running = null;
+            runningRequest = null;
             llm.freezeTick(companion);
             llm.finalizeTerminal();
             llm.drainResults(companion);
@@ -144,6 +146,7 @@ final class CompanionBrain {
         }
 
         running = best;
+        runningRequest = candidate;
         if (switching) {
             // The new winner now owns the lease, so it is the only controller
             // allowed to clear sticky inputs left by its predecessor.
@@ -178,15 +181,41 @@ final class CompanionBrain {
         TaskSessionHooks.fireSessionEnd(companion);
         llm.dropActiveNoResult();
         bodyLog.flush();
-        if (running != null) {
-            if (com.dwinovo.numen.task.control.BodyControlPolicies.owns(
-                    companion, running)) {
-                running.onInterrupt(companion);
-                com.dwinovo.numen.entity.InputDriver.neutralize(companion);
-            }
-            com.dwinovo.numen.task.control.BodyControlPolicies.release(
-                    companion.getUUID(), running.controlActorId());
-            running = null;
+        if (running != null || runningRequest != null) {
+            interruptAndRelease(companion);
         }
+    }
+
+    /**
+     * Interrupt and release the exact successfully acquired session. Ownership
+     * is checked with the same identity at the current tick; release uses the
+     * original successful-acquire snapshot.
+     */
+    private void interruptAndRelease(NumenPlayer companion) {
+        TaskChain previous = running;
+        BodyControlPolicy.Request acquired = runningRequest;
+        if (previous != null
+                && acquired != null
+                && BodyControlPolicies.claimHandoff(acquired.atTick(
+                        companion.level().getGameTime()))) {
+            previous.onInterrupt(companion);
+            com.dwinovo.numen.entity.InputDriver.neutralize(companion);
+        }
+        if (acquired != null) {
+            BodyControlPolicies.release(acquired);
+        }
+        running = null;
+        runningRequest = null;
+    }
+
+    /** Actor or task-session changes are full handoffs, even on the same chain. */
+    static boolean sameControlSession(
+            BodyControlPolicy.Request left,
+            BodyControlPolicy.Request right) {
+        return left != null
+                && right != null
+                && Objects.equals(left.bodyId(), right.bodyId())
+                && Objects.equals(left.actorId(), right.actorId())
+                && Objects.equals(left.sessionId(), right.sessionId());
     }
 }

@@ -55,6 +55,17 @@ public interface TaskChain {
         return "numen-chain:" + name();
     }
 
+    /**
+     * Identity of the current control session owned by this actor.
+     *
+     * <p>Long-lived chains default to one session per actor. Task-backed chains
+     * override this so a late release or renewal from an older task cannot be
+     * mistaken for the current task.
+     */
+    default String controlSessionId() {
+        return controlActorId();
+    }
+
     /** Priority is independent of the chain's historical float bid. */
     default int controlPriority() {
         return controlClass().defaultPriority();
