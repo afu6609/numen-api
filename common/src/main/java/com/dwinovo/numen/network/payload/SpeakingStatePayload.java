@@ -1,6 +1,7 @@
 package com.dwinovo.numen.network.payload;
 
 import com.dwinovo.numen.Constants;
+import com.dwinovo.numen.MomoIntegration;
 import com.dwinovo.numen.entity.CompanionSpeech;
 import com.dwinovo.numen.network.NumenPayload;
 import net.minecraft.network.FriendlyByteBuf;
@@ -35,6 +36,10 @@ public record SpeakingStatePayload(UUID entityUuid, boolean speaking) implements
 
     /** Server main thread. 只认主人本人发来的状态。 */
     public static void handle(SpeakingStatePayload p, ServerPlayer sender) {
+        // Momo's lifecycle/task bus intentionally has no legacy idle-posture
+        // writer. Keep the packet decodable for protocol compatibility, but do
+        // not let it recreate a second body-control path.
+        if (MomoIntegration.managedBodyMode()) return;
         var companion = com.dwinovo.numen.entity.NumenPlayer.findByUuid(
                 sender.level().getServer(), p.entityUuid());
         if (companion == null || !companion.isOwnedByPlayer(sender.getUUID())) return;

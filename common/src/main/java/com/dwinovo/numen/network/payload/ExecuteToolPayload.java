@@ -94,7 +94,7 @@ public record ExecuteToolPayload(UUID entityUuid,
         var server = player.level().getServer();
         com.dwinovo.numen.entity.NumenPlayer companion =
                 com.dwinovo.numen.entity.NumenPlayer.findByUuid(server, p.entityUuid());
-        if (companion == null) {
+        if (companion == null && !com.dwinovo.numen.MomoIntegration.managedBodyMode()) {
             companion = com.dwinovo.numen.entity.Companions.respawn(server, p.entityUuid());
         }
         if (companion != null) {

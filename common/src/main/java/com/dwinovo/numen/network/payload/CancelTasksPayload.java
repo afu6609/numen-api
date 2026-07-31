@@ -1,6 +1,7 @@
 package com.dwinovo.numen.network.payload;
 
 import com.dwinovo.numen.Constants;
+import com.dwinovo.numen.MomoIntegration;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.network.NumenPayload;
 import net.minecraft.network.FriendlyByteBuf;
@@ -45,6 +46,17 @@ public record CancelTasksPayload(UUID entityUuid) implements NumenPayload {
 
     /** Handler invoked on the server main thread. */
     public static void handle(CancelTasksPayload p, ServerPlayer player) {
+        if (MomoIntegration.managedBodyMode()) {
+            int cancelled = MomoIntegration.cancelManagedTasks(
+                    p.entityUuid(),
+                    player.getUUID(),
+                    "cancelled by owner from client");
+            Constants.LOG.info(
+                    "[momo-net] owner Stop request cancelled {} managed task(s) for {}",
+                    cancelled,
+                    p.entityUuid());
+            return;
+        }
         // Cross-dimension lookup: the owner must be able to stop a companion
         // that has wandered into another dimension or out of view distance.
         NumenPlayer numen = NumenPlayer.findByUuid(player.level().getServer(), p.entityUuid());

@@ -6,8 +6,10 @@ plugins {
 
 mixin {
     add(sourceSets.main, "${mod_id}.refmap.json")
-    config("${mod_id}.mixins.json")
-    config("${mod_id}.forge.mixins.json")
+    // Keep legacy resource filenames so existing launch tooling and rollback
+    // builds can still locate them; their refmap carries the new mod identity.
+    config("numen_api.mixins.json")
+    config("numen_api.forge.mixins.json")
 }
 
 minecraft {

@@ -1,3 +1,10 @@
+> **Momo managed fork:** Forge loads this compatibility engine as `momo_engine`
+> and publishes `momo-engine-*` artifacts. With `momo_embodied` installed, its
+> legacy body factory, scheduler, actuator, and posture writers are disabled;
+> the tool/MCP protocol and player ABI remain. `com.dwinovo.numen`,
+> `config/numen/**`, persisted world data, and protocol paths are retained as an
+> attributed GNU LGPL v3.0 compatibility boundary.
+
 <div align="center">
 
 # Numen · 言出法随

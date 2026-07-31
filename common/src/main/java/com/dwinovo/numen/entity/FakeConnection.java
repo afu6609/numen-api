@@ -37,7 +37,8 @@ import net.minecraft.network.protocol.PacketFlow;
  * attribute seeding needed, unlike 1.20.4+).
  */
 @com.dwinovo.numen.api.Internal
-public final class FakeConnection extends Connection {
+public final class FakeConnection extends Connection
+        implements FakePlayerConnection {
 
     public FakeConnection() {
         super(PacketFlow.SERVERBOUND);

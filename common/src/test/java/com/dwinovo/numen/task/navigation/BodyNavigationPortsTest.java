@@ -2,6 +2,8 @@ package com.dwinovo.numen.task.navigation;
 
 import com.dwinovo.numen.task.control.BodyControlClass;
 import com.dwinovo.numen.task.control.BodyControlPolicy;
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.ApproachBlockRequest;
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.ApproachItemRequest;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.BlockPosition;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.ControlBinding;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.FollowRequest;
@@ -11,8 +13,12 @@ import com.dwinovo.numen.task.navigation.BodyNavigationPort.Snapshot;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.StartDisposition;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.StartResult;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.State;
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.TerrainAllowance;
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.TerrainUsage;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -34,6 +40,57 @@ class BodyNavigationPortsTest {
         assertEquals(StartDisposition.UNSUPPORTED, result.disposition());
         assertTrue(result.permitsLegacyFallback());
         assertFalse(result.accepted());
+    }
+
+    @Test
+    void itemApproachIsUnsupportedByDefault() {
+        StartResult result = BodyNavigationPorts.startApproachItem(
+                new ApproachItemRequest(
+                        binding("item-default"),
+                        UUID.randomUUID(),
+                        1.25,
+                        noTerrainEdits()));
+
+        assertEquals(StartDisposition.UNSUPPORTED, result.disposition());
+        assertTrue(result.permitsLegacyFallback());
+    }
+
+    @Test
+    void blockApproachIsUnsupportedByDefault() {
+        StartResult result = BodyNavigationPorts.startApproachBlock(
+                new ApproachBlockRequest(
+                        binding("block-default"),
+                        new BlockPosition(10, 63, -3),
+                        3.5,
+                        noTerrainEdits(),
+                        Set.of(new BlockPosition(9, 63, -3))));
+
+        assertEquals(StartDisposition.UNSUPPORTED, result.disposition());
+        assertTrue(result.permitsLegacyFallback());
+    }
+
+    @Test
+    void blockApproachAlwaysProtectsTargetAndCopiesCallerSet() {
+        BlockPosition target = new BlockPosition(10, 63, -3);
+        BlockPosition adjacent = new BlockPosition(9, 63, -3);
+        BlockPosition later = new BlockPosition(8, 63, -3);
+        Set<BlockPosition> supplied = new HashSet<>();
+        supplied.add(adjacent);
+
+        ApproachBlockRequest request = new ApproachBlockRequest(
+                binding("block-protected-target"),
+                target,
+                3.5,
+                noTerrainEdits(),
+                supplied);
+        supplied.add(later);
+
+        assertEquals(
+                Set.of(target, adjacent),
+                request.protectedPositions());
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> request.protectedPositions().add(later));
     }
 
     @Test
@@ -75,6 +132,11 @@ class BodyNavigationPortsTest {
             }
 
             @Override
+            public TerrainUsage terrainUsage() {
+                return new TerrainUsage(2, 37, 1);
+            }
+
+            @Override
             public void cancel(String reason) {
                 cancellations.incrementAndGet();
             }
@@ -97,6 +159,9 @@ class BodyNavigationPortsTest {
             assertFalse(result.permitsLegacyFallback());
             assertSame(binding, result.operation().binding());
             assertEquals(State.MOVING, result.operation().snapshot().state());
+            assertEquals(
+                    new TerrainUsage(2, 37, 1),
+                    result.operation().terrainUsage());
 
             result.operation().cancel("task finalized");
             result.operation().cancel("duplicate cleanup");
@@ -130,6 +195,90 @@ class BodyNavigationPortsTest {
         }
 
         assertEquals(1, cancellations.get());
+    }
+
+    @Test
+    void wrongItemApproachBindingIsCancelledBeforeAdmissionIsRejected() {
+        ControlBinding requested = binding("item-requested");
+        ControlBinding wrong = binding("item-wrong");
+        AtomicInteger cancellations = new AtomicInteger();
+        Operation raw = operation(wrong, cancellations, false);
+        BodyNavigationPort port = new BodyNavigationPort() {
+            @Override
+            public StartResult startApproachItem(
+                    ApproachItemRequest request) {
+                return StartResult.accepted(raw, "accepted incorrectly");
+            }
+        };
+
+        try (BodyNavigationPorts.Registration ignored =
+                     BodyNavigationPorts.install(port)) {
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> BodyNavigationPorts.startApproachItem(
+                            new ApproachItemRequest(
+                                    requested,
+                                    UUID.randomUUID(),
+                                    1.25,
+                                    noTerrainEdits())));
+        }
+
+        assertEquals(1, cancellations.get());
+    }
+
+    @Test
+    void wrongBlockApproachBindingIsCancelledBeforeAdmissionIsRejected() {
+        ControlBinding requested = binding("block-requested");
+        ControlBinding wrong = binding("block-wrong");
+        AtomicInteger cancellations = new AtomicInteger();
+        Operation raw = operation(wrong, cancellations, false);
+        BodyNavigationPort port = new BodyNavigationPort() {
+            @Override
+            public StartResult startApproachBlock(
+                    ApproachBlockRequest request) {
+                return StartResult.accepted(raw, "accepted incorrectly");
+            }
+        };
+
+        try (BodyNavigationPorts.Registration ignored =
+                     BodyNavigationPorts.install(port)) {
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> BodyNavigationPorts.startApproachBlock(
+                            new ApproachBlockRequest(
+                                    requested,
+                                    new BlockPosition(1, 12, 1),
+                                    3.5,
+                                    noTerrainEdits(),
+                                    Set.of())));
+        }
+
+        assertEquals(1, cancellations.get());
+    }
+
+    @Test
+    void terrainAllowanceRejectsInconsistentBudgets() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(-1, 0, 0, false, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(0, -1, 0, false, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(0, 0, -1, false, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(1, 0, 0, false, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(0, 20, 0, false, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(0, 0, 0, true, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TerrainAllowance(0, 0, 0, false, true));
     }
 
     @Test
@@ -199,6 +348,11 @@ class BodyNavigationPortsTest {
             }
 
             @Override
+            public TerrainUsage terrainUsage() {
+                return TerrainUsage.NONE;
+            }
+
+            @Override
             public void cancel(String reason) {
                 int attempt = cancellations.incrementAndGet();
                 if (failFirstCancellation && attempt == 1) {
@@ -217,5 +371,9 @@ class BodyNavigationPortsTest {
                 BodyControlClass.DIRECTED_ACTION,
                 BodyControlClass.DIRECTED_ACTION.defaultPriority(),
                 100L));
+    }
+
+    private static TerrainAllowance noTerrainEdits() {
+        return new TerrainAllowance(0, 0, 0, false, false);
     }
 }

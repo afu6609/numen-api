@@ -18,7 +18,7 @@ public class NumenFabricClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         Path numenConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
-                .resolve("config").resolve(Constants.MOD_ID);
+                .resolve("config").resolve(Constants.LEGACY_CONFIG_DIRECTORY);
         Path skillsDir = numenConfigRoot.resolve("skills");
 
         // 读回上次选择的 GUI 主题(config/numen/ui.json)。
@@ -60,7 +60,7 @@ public class NumenFabricClient implements ClientModInitializer {
                 .register(context -> {
                     try {
                         context.register(
-                                new ResourceLocation(Constants.MOD_ID, "rendertype_round_rect"),
+                                new ResourceLocation(Constants.RESOURCE_NAMESPACE, "rendertype_round_rect"),
                                 com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_COLOR,
                                 com.dwinovo.numen.client.ui.RoundRect::setShader);
                     } catch (Exception e) {

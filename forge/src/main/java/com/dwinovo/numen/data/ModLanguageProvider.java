@@ -14,7 +14,7 @@ public final class ModLanguageProvider extends LanguageProvider {
     private final String locale;
 
     public ModLanguageProvider(PackOutput output, String locale) {
-        super(output, Constants.MOD_ID, locale);
+        super(output, Constants.RESOURCE_NAMESPACE, locale);
         this.locale = locale;
     }
 

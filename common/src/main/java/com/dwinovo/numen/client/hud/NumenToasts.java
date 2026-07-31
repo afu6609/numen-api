@@ -55,7 +55,8 @@ public final class NumenToasts {
     private static final long SLIDE_MS = 220;
 
     private static net.minecraft.resources.ResourceLocation spr(String n) {
-        return new net.minecraft.resources.ResourceLocation(com.dwinovo.numen.Constants.MOD_ID, n);
+        return new net.minecraft.resources.ResourceLocation(
+                com.dwinovo.numen.Constants.RESOURCE_NAMESPACE, n);
     }
     private static final net.minecraft.resources.ResourceLocation AVATAR_FRAME = spr("avatar_frame");
 

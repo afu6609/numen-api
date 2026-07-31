@@ -1,3 +1,8 @@
+> **Momo 托管分支：** Forge 现在以 `momo_engine` 加载本兼容引擎。检测到
+> `momo_embodied` 时，旧身体工厂、调度器、执行器和姿态写入口全部停用，
+> 仅保留工具/MCP 协议与玩家 ABI。`com.dwinovo.numen`、`config/numen/**`、
+> 既有世界数据和协议路径继续作为注明来源的 GNU LGPL v3.0 兼容边界。
+
 <div align="center">
 
 # Numen · 言出法随

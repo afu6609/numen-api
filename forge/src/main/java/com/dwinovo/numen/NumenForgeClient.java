@@ -60,7 +60,7 @@ public final class NumenForgeClient {
             event.registerShader(new net.minecraft.client.renderer.ShaderInstance(
                             event.getResourceProvider(),
                             new net.minecraft.resources.ResourceLocation(
-                                    Constants.MOD_ID, "rendertype_round_rect"),
+                        Constants.RESOURCE_NAMESPACE, "rendertype_round_rect"),
                             com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_COLOR),
                     com.dwinovo.numen.client.ui.RoundRect::setShader);
         } catch (Exception e) {
@@ -100,7 +100,7 @@ public final class NumenForgeClient {
 
     static void registerReloadListeners(RegisterClientReloadListenersEvent event) {
         Path numenConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
-                .resolve("config").resolve(Constants.MOD_ID);
+                .resolve("config").resolve(Constants.LEGACY_CONFIG_DIRECTORY);
         Path skillsDir = numenConfigRoot.resolve("skills");
 
         // MCP client: connect to any external MCP servers listed in

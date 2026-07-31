@@ -28,6 +28,15 @@ public final class NumenNetwork {
     private NumenNetwork() {}
 
     public static void register() {
+        register(true);
+    }
+
+    /**
+     * Register the protocol, optionally including the historical companion
+     * lifecycle mutation endpoints. Momo-managed servers keep tool transport
+     * and perception packets but must not expose a second body factory.
+     */
+    public static void register(boolean registerLegacyLifecycleEndpoints) {
         // C→S: the client agent loop decided to run a body-bound tool on its companion.
         Services.NETWORK.registerClientToServer(
                 com.dwinovo.numen.network.payload.ExecuteToolPayload.ID,
@@ -104,17 +113,19 @@ public final class NumenNetwork {
                 com.dwinovo.numen.network.payload.NumenInventoryPayload::read,
                 com.dwinovo.numen.network.payload.NumenInventoryPayload::handle);
 
-        // C→S: the panel's "+" button asks to summon a companion by name.
-        Services.NETWORK.registerClientToServer(
-                com.dwinovo.numen.network.payload.SummonRequestPayload.ID,
-                com.dwinovo.numen.network.payload.SummonRequestPayload::read,
-                com.dwinovo.numen.network.payload.SummonRequestPayload::handle);
+        if (registerLegacyLifecycleEndpoints) {
+            // C→S: the panel's "+" button asks to summon a companion by name.
+            Services.NETWORK.registerClientToServer(
+                    com.dwinovo.numen.network.payload.SummonRequestPayload.ID,
+                    com.dwinovo.numen.network.payload.SummonRequestPayload::read,
+                    com.dwinovo.numen.network.payload.SummonRequestPayload::handle);
 
-        // C→S: the rail ✕ → confirm asks to permanently delete a companion (drops its inventory first).
-        Services.NETWORK.registerClientToServer(
-                com.dwinovo.numen.network.payload.DismissRequestPayload.ID,
-                com.dwinovo.numen.network.payload.DismissRequestPayload::read,
-                com.dwinovo.numen.network.payload.DismissRequestPayload::handle);
+            // C→S: the rail ✕ → confirm asks to permanently delete a companion.
+            Services.NETWORK.registerClientToServer(
+                    com.dwinovo.numen.network.payload.DismissRequestPayload.ID,
+                    com.dwinovo.numen.network.payload.DismissRequestPayload::read,
+                    com.dwinovo.numen.network.payload.DismissRequestPayload::handle);
+        }
 
         // S→C: a companion's live pathing state for the debug overlay (lines/boxes).
         Services.NETWORK.registerServerToClient(

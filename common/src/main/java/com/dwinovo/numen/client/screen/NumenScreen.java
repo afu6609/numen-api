@@ -106,7 +106,8 @@ public final class NumenScreen extends Screen {
         FAIL = t.fail();
     }
     private static net.minecraft.resources.ResourceLocation railSpr(String n) {
-        return new net.minecraft.resources.ResourceLocation(com.dwinovo.numen.Constants.MOD_ID, n);
+        return new net.minecraft.resources.ResourceLocation(
+                com.dwinovo.numen.Constants.RESOURCE_NAMESPACE, n);
     }
     private static final net.minecraft.resources.ResourceLocation AVATAR_FRAME = railSpr("avatar_frame");
     private static final net.minecraft.resources.ResourceLocation AVATAR_FRAME_ACTIVE = railSpr("avatar_frame_active");
@@ -501,7 +502,7 @@ public final class NumenScreen extends Screen {
 
     private static net.minecraft.resources.ResourceLocation chatIcon(String n) {
         return new net.minecraft.resources.ResourceLocation(
-                com.dwinovo.numen.Constants.MOD_ID, n);
+                com.dwinovo.numen.Constants.RESOURCE_NAMESPACE, n);
     }
     private static final net.minecraft.resources.ResourceLocation ICON_SEND = chatIcon("icon_send");
     private static final net.minecraft.resources.ResourceLocation ICON_MIC = chatIcon("icon_mic");

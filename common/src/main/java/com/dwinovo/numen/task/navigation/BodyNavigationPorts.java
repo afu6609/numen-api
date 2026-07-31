@@ -1,5 +1,7 @@
 package com.dwinovo.numen.task.navigation;
 
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.ApproachBlockRequest;
+import com.dwinovo.numen.task.navigation.BodyNavigationPort.ApproachItemRequest;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.ControlBinding;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.FollowRequest;
 import com.dwinovo.numen.task.navigation.BodyNavigationPort.MoveBlockRequest;
@@ -49,6 +51,22 @@ public final class BodyNavigationPorts {
         return guard(
                 request.binding(),
                 ACTIVE.get().startFollow(request));
+    }
+
+    public static StartResult startApproachItem(
+            ApproachItemRequest request) {
+        Objects.requireNonNull(request, "request");
+        return guard(
+                request.binding(),
+                ACTIVE.get().startApproachItem(request));
+    }
+
+    public static StartResult startApproachBlock(
+            ApproachBlockRequest request) {
+        Objects.requireNonNull(request, "request");
+        return guard(
+                request.binding(),
+                ACTIVE.get().startApproachBlock(request));
     }
 
     private static StartResult guard(
@@ -124,6 +142,13 @@ public final class BodyNavigationPorts {
             return Objects.requireNonNull(
                     delegate.snapshot(),
                     "navigation provider returned no snapshot");
+        }
+
+        @Override
+        public BodyNavigationPort.TerrainUsage terrainUsage() {
+            return Objects.requireNonNull(
+                    delegate.terrainUsage(),
+                    "navigation provider returned no terrain usage");
         }
 
         @Override

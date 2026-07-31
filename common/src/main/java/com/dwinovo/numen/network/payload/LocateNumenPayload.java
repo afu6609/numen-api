@@ -53,7 +53,9 @@ public record LocateNumenPayload(List<UUID> entityUuids) implements NumenPayload
     /** Handler invoked on the server main thread. */
     public static void handle(LocateNumenPayload p, ServerPlayer player) {
         List<NumenLocationsPayload.Snapshot> out = new ArrayList<>(p.entityUuids().size());
-        CompanionRegistry registry = CompanionRegistry.get(player.level().getServer());
+        CompanionRegistry registry = com.dwinovo.numen.MomoIntegration.managedBodyMode()
+                ? null
+                : CompanionRegistry.get(player.level().getServer());
         for (UUID uuid : p.entityUuids()) {
             NumenPlayer numen = NumenPlayer.findByUuid(player.level().getServer(), uuid);
             if (numen != null && numen.isOwnedByPlayer(player.getUUID())) {
@@ -66,7 +68,7 @@ public record LocateNumenPayload(List<UUID> entityUuids) implements NumenPayload
             // Dormant (owner logged out, or not yet respawned this session): fall
             // back to the persistent companion index so the roster can show WHERE
             // it sleeps instead of a useless "offline". Owner-gated.
-            CompanionRegistry.Entry entry = registry.find(uuid);
+            CompanionRegistry.Entry entry = registry == null ? null : registry.find(uuid);
             if (numen == null && entry != null && entry.owner().equals(player.getUUID())) {
                 var pos = entry.pos();
                 out.add(NumenLocationsPayload.Snapshot.lastSeen(uuid,

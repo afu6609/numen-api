@@ -32,7 +32,7 @@ public final class ItemsView {
             EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
     private static ResourceLocation spr(String name) {
-        return new ResourceLocation(Constants.MOD_ID, name);
+        return new ResourceLocation(Constants.RESOURCE_NAMESPACE, name);
     }
     private static final ResourceLocation SLOT_SPRITE = spr("slot");
     private static final ResourceLocation SLOT_ALT = spr("slot_alt");        // checkerboard

@@ -1,6 +1,6 @@
 package com.dwinovo.numen.mixin;
 
-import com.dwinovo.numen.entity.FakeConnection;
+import com.dwinovo.numen.entity.FakePlayerConnection;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -44,7 +44,7 @@ public abstract class MixinServerGamePacketListener {
 
     @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;)V", at = @At("HEAD"), cancellable = true)
     private void numen$dropOutboundForFakeConnection(Packet<?> packet, CallbackInfo ci) {
-        if (this.connection instanceof FakeConnection) {
+        if (this.connection instanceof FakePlayerConnection) {
             ci.cancel();
         }
     }

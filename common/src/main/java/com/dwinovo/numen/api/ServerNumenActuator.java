@@ -53,10 +53,27 @@ public final class ServerNumenActuator {
             return result;
         }
         server.execute(() -> {
-            List<Companion> companions = CompanionRegistry.get(server).snapshot().entrySet().stream()
-                    .map(e -> companion(server, e))
-                    .sorted(Comparator.comparing(Companion::name, String.CASE_INSENSITIVE_ORDER))
-                    .toList();
+            List<Companion> companions;
+            if (com.dwinovo.numen.MomoIntegration.managedBodyMode()) {
+                companions = server.getPlayerList().getPlayers().stream()
+                        .filter(NumenPlayer.class::isInstance)
+                        .map(NumenPlayer.class::cast)
+                        .filter(body -> body.isAlive() && !body.isRemoved())
+                        .map(body -> new Companion(
+                                body.getUUID(),
+                                body.getName().getString(),
+                                body.getOwnerUuid(),
+                                true))
+                        .sorted(Comparator.comparing(
+                                Companion::name, String.CASE_INSENSITIVE_ORDER))
+                        .toList();
+            } else {
+                companions = CompanionRegistry.get(server).snapshot().entrySet().stream()
+                        .map(e -> companion(server, e))
+                        .sorted(Comparator.comparing(
+                                Companion::name, String.CASE_INSENSITIVE_ORDER))
+                        .toList();
+            }
             result.complete(companions);
         });
         return result;
@@ -97,7 +114,10 @@ public final class ServerNumenActuator {
             }
 
             NumenPlayer body = NumenPlayer.findByUuid(server, companionUuid);
-            if (body == null) body = Companions.respawn(server, companionUuid);
+            if (body == null
+                    && !com.dwinovo.numen.MomoIntegration.managedBodyMode()) {
+                body = Companions.respawn(server, companionUuid);
+            }
             if (body == null) {
                 result.complete(TaskResult.fail(
                         "companion not found (never summoned, or its data is gone)").toJson());
@@ -152,7 +172,10 @@ public final class ServerNumenActuator {
 
         server.execute(() -> {
             NumenPlayer body = NumenPlayer.findByUuid(server, companionUuid);
-            if (body == null) body = Companions.respawn(server, companionUuid);
+            if (body == null
+                    && !com.dwinovo.numen.MomoIntegration.managedBodyMode()) {
+                body = Companions.respawn(server, companionUuid);
+            }
             if (body == null) {
                 result.complete(false);
                 return;
@@ -193,7 +216,10 @@ public final class ServerNumenActuator {
 
         server.execute(() -> {
             NumenPlayer body = NumenPlayer.findByUuid(server, companionUuid);
-            if (body == null) body = Companions.respawn(server, companionUuid);
+            if (body == null
+                    && !com.dwinovo.numen.MomoIntegration.managedBodyMode()) {
+                body = Companions.respawn(server, companionUuid);
+            }
             if (body == null) {
                 result.completeExceptionally(new IllegalArgumentException(
                         "companion not found (never summoned, or its data is gone)"));

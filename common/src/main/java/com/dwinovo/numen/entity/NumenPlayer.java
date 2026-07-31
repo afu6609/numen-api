@@ -29,7 +29,12 @@ import java.util.UUID;
  * vanilla {@code isOwnedBy} (which resolves through a level and breaks across
  * dimensions).
  */
-public final class NumenPlayer extends ServerPlayer {
+/**
+ * Legacy-compatible fake-player base retained for tool ABI compatibility.
+ * New body lifecycle implementations may subclass it while the public tool
+ * contract is migrated away from the historical concrete type.
+ */
+public class NumenPlayer extends ServerPlayer {
 
     private static final String NBT_KEY_OWNER = "NumenOwner";
 
@@ -58,12 +63,14 @@ public final class NumenPlayer extends ServerPlayer {
         if (!(server.getPlayerList().getPlayer(uuid) instanceof NumenPlayer ap)) {
             return null;
         }
-        // onDeath heals the corpse before scheduling its end-of-tick removal so
-        // the persisted body can be reused. During that short window it is still
-        // in PlayerList but must not be handed to a server-side tool as "live":
-        // doing so bypasses the death delay and can queue work on a corpse.
-        CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(uuid);
-        return entry != null && entry.diedAt() > 0L ? null : ap;
+        // Do not consult the historical SavedData implementation here. A
+        // replacement lifecycle may intentionally own the same on-disk data
+        // key, and two Java SavedData types cannot safely occupy one cache key.
+        // A schedulable body is instead defined by the authoritative player
+        // list plus its live entity state.
+        return ap.isAlive() && !ap.isRemoved() && !ap.isDeadOrDying()
+                ? ap
+                : null;
     }
 
     /**
@@ -160,16 +167,24 @@ public final class NumenPlayer extends ServerPlayer {
             Companions.onDeath(this);
             return;
         }
+        tickVanillaBody();
+    }
+
+    /**
+     * Run only the vanilla fake-player movement/food/air pass. Replacement
+     * lifecycle subclasses call this without invoking Numen's death handler.
+     */
+    protected final void tickVanillaBody() {
         if (level() instanceof ServerLevel sl && sl.getGameTime() % 10 == 0) {
-            this.connection.resetPosition();
+            if (this.connection != null) this.connection.resetPosition();
             sl.getChunkSource().move(this);
         }
         super.tick();
         try {
             this.doTick();
-        } catch (Exception ignored) {
-            // fake-connection internals can NPE on edge cases; a swallowed tick
-            // beats crashing the server for a cosmetic pass
+        } catch (RuntimeException ignored) {
+            // A malformed fake connection must not crash the server tick. The
+            // replacement lifecycle can add its own rate-limited diagnostics.
         }
     }
 

@@ -16,7 +16,12 @@ public class CommonClass {
                 Services.PLATFORM.getPlatformName(), Services.PLATFORM.getEnvironmentName());
 
         registerTools();
-        wireTaskMachine();
+        if (!MomoIntegration.managedBodyMode()) {
+            wireTaskMachine();
+        } else {
+            Constants.LOG.info(
+                    "Momo managed-body mode: legacy task machine and posture chain are disabled");
+        }
     }
 
     /**

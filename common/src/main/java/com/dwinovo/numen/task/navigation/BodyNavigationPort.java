@@ -2,7 +2,9 @@ package com.dwinovo.numen.task.navigation;
 
 import com.dwinovo.numen.task.control.BodyControlPolicy;
 
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -110,6 +112,49 @@ public interface BodyNavigationPort {
     record BlockPosition(int x, int y, int z) {}
 
     /**
+     * Explicit, bounded terrain-edit authority for one navigation operation.
+     *
+     * <p>A positive break budget may be used for ordinary obstruction removal
+     * even when downward excavation is disabled. Likewise, a positive scaffold
+     * budget may be used for bridging when pillar movement is disabled.
+     */
+    record TerrainAllowance(
+            int maxBrokenBlocks,
+            int maxBreakTicks,
+            int maxScaffoldBlocks,
+            boolean allowPillar,
+            boolean allowDigDown) {
+
+        public TerrainAllowance {
+            if (maxBrokenBlocks < 0) {
+                throw new IllegalArgumentException(
+                        "maxBrokenBlocks must not be negative");
+            }
+            if (maxBreakTicks < 0) {
+                throw new IllegalArgumentException(
+                        "maxBreakTicks must not be negative");
+            }
+            if (maxScaffoldBlocks < 0) {
+                throw new IllegalArgumentException(
+                        "maxScaffoldBlocks must not be negative");
+            }
+            if ((maxBrokenBlocks == 0) != (maxBreakTicks == 0)) {
+                throw new IllegalArgumentException(
+                        "block and tick break budgets must both be zero or "
+                                + "both be positive");
+            }
+            if (allowPillar && maxScaffoldBlocks == 0) {
+                throw new IllegalArgumentException(
+                        "pillar movement requires a positive scaffold budget");
+            }
+            if (allowDigDown && maxBrokenBlocks == 0) {
+                throw new IllegalArgumentException(
+                        "downward excavation requires a positive break budget");
+            }
+        }
+    }
+
+    /**
      * Exact-cell move used by Numen's coordinate {@code goto} BLOCK form.
      *
      * <p>The requested cell is the body's destination, not a block to approach.
@@ -124,6 +169,63 @@ public interface BodyNavigationPort {
         public MoveBlockRequest {
             binding = Objects.requireNonNull(binding, "binding");
             target = Objects.requireNonNull(target, "target");
+        }
+    }
+
+    /**
+     * Approach one target block from any safe stance inside the supplied
+     * radius.
+     *
+     * <p>Every position in {@code protectedPositions} is immutable for this
+     * operation: a provider must not break, replace, or place a block at any of
+     * those coordinates while satisfying the request.
+     */
+    record ApproachBlockRequest(
+            ControlBinding binding,
+            BlockPosition target,
+            double arrivalRadius,
+            TerrainAllowance terrainAllowance,
+            Set<BlockPosition> protectedPositions) {
+
+        public ApproachBlockRequest {
+            binding = Objects.requireNonNull(binding, "binding");
+            target = Objects.requireNonNull(target, "target");
+            if (!Double.isFinite(arrivalRadius) || arrivalRadius <= 0.0) {
+                throw new IllegalArgumentException(
+                        "block arrival radius must be finite and positive");
+            }
+            terrainAllowance = Objects.requireNonNull(
+                    terrainAllowance,
+                    "terrainAllowance");
+            Set<BlockPosition> protectedCopy = new HashSet<>(
+                    Objects.requireNonNull(
+                            protectedPositions,
+                            "protectedPositions"));
+            protectedCopy.add(target);
+            protectedPositions = Set.copyOf(protectedCopy);
+        }
+    }
+
+    /**
+     * Approach one live dropped-item entity without assuming its occupied
+     * block is a valid body destination.
+     */
+    record ApproachItemRequest(
+            ControlBinding binding,
+            UUID targetUuid,
+            double arrivalRadius,
+            TerrainAllowance terrainAllowance) {
+
+        public ApproachItemRequest {
+            binding = Objects.requireNonNull(binding, "binding");
+            targetUuid = Objects.requireNonNull(targetUuid, "targetUuid");
+            if (!Double.isFinite(arrivalRadius) || arrivalRadius <= 0.0) {
+                throw new IllegalArgumentException(
+                        "item arrival radius must be finite and positive");
+            }
+            terrainAllowance = Objects.requireNonNull(
+                    terrainAllowance,
+                    "terrainAllowance");
         }
     }
 
@@ -212,6 +314,31 @@ public interface BodyNavigationPort {
     }
 
     /**
+     * Monotonic terrain-edit consumption for one accepted operation.
+     *
+     * <p>The task layer can add this receipt to a task-wide budget before it
+     * releases the operation. Providers that do not edit terrain must report
+     * {@link #NONE} explicitly.</p>
+     */
+    record TerrainUsage(
+            int brokenBlocks,
+            int breakTicks,
+            int scaffoldBlocks) {
+
+        public static final TerrainUsage NONE =
+                new TerrainUsage(0, 0, 0);
+
+        public TerrainUsage {
+            if (brokenBlocks < 0
+                    || breakTicks < 0
+                    || scaffoldBlocks < 0) {
+                throw new IllegalArgumentException(
+                        "terrain usage must not be negative");
+            }
+        }
+    }
+
+    /**
      * Opaque, asynchronously advanced provider operation.
      *
      * <p>{@link #cancel(String)} must be idempotent, including after a terminal
@@ -234,6 +361,13 @@ public interface BodyNavigationPort {
         /** Poll only; the provider advances the operation from its server tick. */
         Snapshot snapshot();
 
+        /**
+         * Return the operation's cumulative, monotonic terrain-edit receipt.
+         * Providers that never edit terrain must return
+         * {@link TerrainUsage#NONE} explicitly.
+         */
+        TerrainUsage terrainUsage();
+
         /** Idempotently stop this operation without releasing its enclosing lease. */
         void cancel(String reason);
 
@@ -243,7 +377,7 @@ public interface BodyNavigationPort {
         }
     }
 
-    /** Admission result for either request type. */
+    /** Admission result for any request type. */
     record StartResult(
             StartDisposition disposition,
             Operation operation,
@@ -304,6 +438,24 @@ public interface BodyNavigationPort {
         Objects.requireNonNull(request, "request");
         return StartResult.unsupported(
                 "external exact-cell navigation is unavailable");
+    }
+
+    /**
+     * Start a bounded approach to one target block.
+     */
+    default StartResult startApproachBlock(ApproachBlockRequest request) {
+        Objects.requireNonNull(request, "request");
+        return StartResult.unsupported(
+                "external block-approach navigation is unavailable");
+    }
+
+    /**
+     * Start a bounded approach to one dropped-item entity.
+     */
+    default StartResult startApproachItem(ApproachItemRequest request) {
+        Objects.requireNonNull(request, "request");
+        return StartResult.unsupported(
+                "external dropped-item approach is unavailable");
     }
 
     /**

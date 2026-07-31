@@ -37,6 +37,7 @@ public class NumenMod implements ModInitializer {
                 com.dwinovo.numen.task.CompanionTickDispatcher::tick);
 
         CommonClass.init();
-        Constants.LOG.info("Numen mod initialised on Fabric.");
+        Constants.LOG.info(
+                "Momo Engine initialised on Fabric (Numen LGPL transition ABI retained).");
     }
 }
